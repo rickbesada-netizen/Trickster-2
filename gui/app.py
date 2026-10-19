@@ -269,6 +269,18 @@ class Api:
         same driver with ["install", "chromium"] args instead of calling
         patchright's own main(), which calls sys.exit() itself and would
         tear down the whole GUI process if invoked directly here."""
+        # Own engine first. If it is (or becomes) available, profiles use it,
+        # so the ~300MB patchright browser is not needed and we skip that
+        # second download entirely (it doubled the first-run wait).
+        try:
+            import chromium_engine
+            res = chromium_engine.ensure(log=lambda m: print(m, flush=True))
+            print(f"[engine] {res['message']}", flush=True)
+            if res.get("ok"):
+                return {"ok": True, "message": "Browser engine ready."}
+        except Exception as e:
+            print(f"[engine] skipped: {e}", flush=True)
+
         try:
             from patchright._impl._driver import compute_driver_executable, get_driver_env
         except Exception as e:
