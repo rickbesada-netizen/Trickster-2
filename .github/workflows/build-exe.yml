@@ -37,10 +37,21 @@ jobs:
           if (-not (Test-Path dist/Trickster.exe)) { throw "dist/Trickster.exe was not produced" }
           Get-Item dist/Trickster.exe | Select-Object Name, Length
 
+      - name: Build installer (TricksterSetup.exe)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $env:TRICKSTER_VERSION = (Get-Date -Format "yyyy.MM.dd")
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss
+          if (-not (Test-Path dist/TricksterSetup.exe)) { throw "dist/TricksterSetup.exe was not produced" }
+          Get-Item dist/TricksterSetup.exe | Select-Object Name, Length
+
       - uses: actions/upload-artifact@v4
         with:
           name: Trickster
-          path: dist/Trickster.exe
+          path: |
+            dist/TricksterSetup.exe
+            dist/Trickster.exe
 
       - name: Publish to Releases
         shell: bash
@@ -49,10 +60,10 @@ jobs:
         run: |
           set -x
           gh release delete latest --yes --cleanup-tag || echo "no old release to delete"
-          gh release create latest dist/Trickster.exe \
+          gh release create latest dist/TricksterSetup.exe dist/Trickster.exe \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --latest \
             --title "Trickster - Antidetect application" \
-            --notes "Download Trickster.exe and double-click to run. Built automatically from commit ${{ github.sha }}."
+            --notes "Download TricksterSetup.exe and double-click it to install (uninstall from Settings > Apps). Trickster.exe is the portable version. Built automatically from commit ${{ github.sha }}."
           gh release view latest --repo "${{ github.repository }}"
