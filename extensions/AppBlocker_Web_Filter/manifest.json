@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "AppBlocker Web Filter",
+  "version": "1.0.1",
+  "description": "Enforces AppBlocker's website allow-list. Managed by AppBlocker.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvXiZ/WjcjzqwwG4q9w5tmeA08V5Mgppm6P5Ru0n4XyrkVZk0cC69yxGwCBc+7zVO/ccLld4WIeWlHA+w+KPakIi4pvfENjdUl9THjyLiKLZvqdw0V3QPCreIUUuSgKAWJMb0D4UYP1AlEd5+ksYsmCx7oI9T3K5ubwLReTESN4TvUGCHVwuFnWky6MldmLNT6H0+IbNP1HmhkvJfYJxwztlOL75ETrfmX99TnSOWM58xd2I3mROVX5HmXTO2j9DAHGldUbSyrHlwcArV5NqaCziVRChz/S6GuZpiX3vx3BQ4C0yGdi4AfYb9TlyqMnjtUky6pZPoY3MSBr3LKS5cSwIDAQAB",
+  "permissions": ["webNavigation", "tabs", "storage", "alarms"],
+  "host_permissions": ["<all_urls>", "http://127.0.0.1:47113/*"],
+  "action": { "default_popup": "popup.html", "default_title": "AppBlocker Web Filter" },
+  "background": { "service_worker": "background.js" }
+}

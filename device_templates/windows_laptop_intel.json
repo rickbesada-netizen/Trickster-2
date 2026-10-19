@@ -1,0 +1,21 @@
+{
+  "profile_id": "windows_laptop_intel",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "platform": "Win32",
+  "viewport": { "width": 1366, "height": 768 },
+  "locale": "en-AU",
+  "timezone_id": "Australia/Sydney",
+  "geolocation": { "latitude": -33.8688, "longitude": 151.2093 },
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "canvas_seed": 442198,
+  "webgl_vendor": "Google Inc. (Intel)",
+  "webgl_renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "fonts": ["Arial", "Calibri", "Cambria", "Segoe UI", "Times New Roman", "Verdana"],
+  "proxy": {
+    "server": "http://your-proxy-host:port",
+    "username": "your-proxy-user",
+    "password": "your-proxy-pass"
+  },
+  "storage_state_path": "profiles/windows_laptop_intel_state.json"
+}

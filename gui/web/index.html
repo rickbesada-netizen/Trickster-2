@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Trickster - Antidetect application</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Setup gate: blocks everything until Chromium is confirmed installed.
+       Shown first, before the auth gate — there's no point asking someone
+       to sign in if launching a profile would fail moments later because
+       the browser engine itself isn't there yet. -->
+  <div class="auth-gate" id="setup-gate">
+    <div class="auth-card">
+      <span class="glyph-mark glyph-mark-lg" aria-hidden="true"></span>
+      <h1>Trickster</h1>
+      <div class="spinner" id="setup-spinner" aria-hidden="true"></div>
+      <p class="auth-sub" id="setup-status">Setting up the browser engine — this can take a minute on first run.</p>
+      <button class="btn btn-primary" id="setup-retry" hidden>Retry</button>
+    </div>
+  </div>
+
+  <!-- Auth gate: blocks everything until signed in -->
+  <div class="auth-gate" id="auth-gate" hidden>
+    <div class="auth-card">
+      <span class="glyph-mark glyph-mark-lg" aria-hidden="true"></span>
+      <h1>Trickster</h1>
+      <p class="auth-sub">Sign in to access your profiles from any device.</p>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" id="auth-email" placeholder="you@example.com" />
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" id="auth-password" placeholder="••••••••" />
+      </label>
+      <div class="auth-actions">
+        <button class="btn btn-ghost" id="auth-signup">Sign up</button>
+        <button class="btn btn-primary" id="auth-signin">Sign in</button>
+      </div>
+      <p class="auth-note" id="auth-note"></p>
+    </div>
+  </div>
+
+  <div class="shell" id="app-shell" hidden>
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="brand">
+        <span class="glyph-mark" aria-hidden="true"></span>
+        <span class="brand-name">Trickster</span>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Browser Profile</div>
+        <a class="nav-item active" href="#">Profile List</a>
+        <a class="nav-item" id="nav-plan" href="#">Timed Plan</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Groups</div>
+        <a class="nav-item active" id="group-filter-all" href="#">All Profiles</a>
+        <div id="groups-list"></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Proxy Resources</div>
+        <a class="nav-item" id="nav-bulk-proxy" href="#">Bulk Assign</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">System</div>
+        <a class="nav-item" id="nav-api" href="#">API</a>
+        <a class="nav-item" id="nav-open-folder" href="#">Open Folder</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Extensions</div>
+        <a class="nav-item" id="nav-extensions" href="#">Extension Management</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Team Management</div>
+        <a class="nav-item" id="nav-team" href="#">Members &amp; Invites</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Cloud Sync</div>
+        <div class="cloud-panel">
+          <div class="cloud-status-text" id="cloud-signed-in-as"></div>
+          <div class="cloud-actions">
+            <button class="btn btn-ghost btn-small" id="btn-cloud-pull">Pull</button>
+            <button class="btn btn-primary btn-small" id="btn-cloud-push">Push</button>
+          </div>
+          <button class="btn btn-ghost btn-small cloud-signout" id="btn-cloud-signout">Sign out</button>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main -->
+    <div class="main">
+      <header class="topbar">
+        <div class="breadcrumb">Dashboard / Browser Profile / <strong>Profile List</strong></div>
+      </header>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <label class="count-input">
+            <span>Count</span>
+            <input type="number" id="gen-count" value="10" min="1" max="500" />
+          </label>
+          <button class="btn btn-primary" id="btn-generate">+ Generate Profiles</button>
+        </div>
+        <div class="toolbar-right">
+          <input type="text" class="search-input" id="search-input" placeholder="Search profile title..." />
+        </div>
+      </div>
+
+      <div class="toolbar" id="open-bar">
+        <div class="toolbar-left">
+          <label class="count-input open-by-no">
+            <span>Open by NO.</span>
+            <input type="text" id="open-by-no" placeholder="e.g. 14  or  3-8  or  1,5,20-25" style="width:260px;" />
+          </label>
+          <button class="btn btn-primary btn-small" id="btn-open-by-no">Open</button>
+        </div>
+        <div class="toolbar-right">
+          <span class="muted" id="open-count"></span>
+          <button class="btn btn-danger btn-small" id="btn-close-all">Close all</button>
+        </div>
+      </div>
+
+      <div class="toolbar" id="bulk-actions-bar" hidden>
+        <div class="toolbar-left">
+          <span id="bulk-selected-count" class="muted"></span>
+          <select class="bulk-select" id="bulk-group-select">
+            <option value="">Add to group…</option>
+            <option value="__new__">+ New group…</option>
+          </select>
+          <input type="text" class="bulk-input" id="bulk-new-group-input" placeholder="New group name" hidden />
+          <button class="btn btn-primary btn-small" id="btn-bulk-open">Open selected</button>
+          <button class="btn btn-danger btn-small" id="btn-bulk-close">Close selected</button>
+          <button class="btn btn-primary btn-small" id="btn-bulk-add-to-group">Add</button>
+          <button class="btn btn-ghost btn-small" id="btn-bulk-remove-from-group">Remove from Group</button>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn btn-ghost btn-small" id="btn-bulk-clear">Clear selection</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="profile-table">
+          <thead>
+            <tr>
+              <th class="col-checkbox"><input type="checkbox" id="select-all" /></th>
+              <th class="col-tag">No.</th>
+              <th>Profile</th>
+              <th>Platform / GPU</th>
+              <th>Locale / Timezone</th>
+              <th>Proxy</th>
+              <th>Operation</th>
+            </tr>
+          </thead>
+          <tbody id="profile-tbody">
+          </tbody>
+        </table>
+        <div class="empty-state" id="empty-state" hidden>
+          <p>No profiles yet.</p>
+          <p class="muted">Set a count above and click <strong>Generate Profiles</strong> to create your first batch.</p>
+        </div>
+      </div>
+
+      <footer class="statusbar" id="statusbar">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Ready.</span>
+        <span class="statusbar-count" id="profile-count">0 profiles</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Per-profile proxy editor -->
+  <div class="modal-overlay" id="proxy-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="proxy-modal-title">
+      <h2 id="proxy-modal-title">Edit proxy &amp; start page</h2>
+      <p class="modal-sub" id="proxy-modal-sub"></p>
+      <label class="field">
+        <span>Paste proxy (server,username,password)</span>
+        <input type="text" id="proxy-paste" placeholder="http://host:port,username,password" />
+      </label>
+      <p class="modal-sub paste-hint">Pasting here fills in the three fields below — or edit them individually.</p>
+      <label class="field">
+        <span>Server</span>
+        <input type="text" id="proxy-server" placeholder="http://host:port" />
+      </label>
+      <label class="field">
+        <span>Username</span>
+        <input type="text" id="proxy-username" placeholder="username" />
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" id="proxy-password" placeholder="password" />
+      </label>
+      <label class="field">
+        <span>Start page (opens when this profile launches)</span>
+        <input type="text" id="proxy-start-url" placeholder="e.g. ads.google.com  (leave empty for Google)" />
+      </label>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="proxy-cancel">Cancel</button>
+        <button class="btn btn-primary" id="proxy-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timed plan -->
+  <div class="modal-overlay" id="plan-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="plan-modal-title">
+      <h2 id="plan-modal-title">Timed plan</h2>
+      <p class="modal-sub">
+        Each row sends a profile to a website for the time you set.
+        <strong>Profile NO.</strong> is the number in the table (<code>14</code>, or a
+        range like <code>3-5</code>). Tick <strong>Scroll down</strong> to have the page
+        scroll steadily to the bottom over that time. Click <strong>Actions</strong> to press
+        a key (like the Down arrow) or type text at an exact second, for example
+        <em>"at 10 seconds, press Down arrow"</em>.<br/>
+        <strong>Several websites for one profile:</strong> use the <em>same</em> Profile NO.
+        on more than one row. It visits them in order, in the same window, then closes.
+      </p>
+      <table class="plan-table">
+        <thead><tr><th>Profile NO.</th><th>Website</th><th>Seconds</th><th>Scroll down</th><th></th><th></th></tr></thead>
+        <tbody id="plan-rows"></tbody>
+      </table>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button class="btn btn-ghost btn-small" id="plan-add-row">+ Add step</button>
+        <label class="plan-mode"><input type="radio" name="plan-mode" value="one_by_one" checked /> One after another</label>
+        <label class="plan-mode"><input type="radio" name="plan-mode" value="together" /> All at the same time</label>
+      </div>
+      <pre class="modal-sub" id="plan-status" style="white-space:pre-wrap;max-height:180px;overflow:auto;margin-top:8px;" hidden></pre>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="plan-stop">Stop</button>
+        <button class="btn btn-ghost" id="plan-close">Close window</button>
+        <button class="btn btn-primary" id="plan-run">Run plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Built-in API panel -->
+  <div class="modal-overlay" id="api-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="api-modal-title">
+      <h2 id="api-modal-title">Local API</h2>
+      <p class="modal-sub" id="api-status-line"></p>
+      <label class="field" style="flex-direction:row;align-items:center;gap:8px;">
+        <input type="checkbox" id="api-enabled" style="width:auto;" />
+        <span>Enable the API (only this computer can reach it)</span>
+      </label>
+      <p class="modal-sub">
+        <strong>You don't need this for normal use.</strong> To open or close profiles,
+        use the <strong>Open by NO.</strong> box and the <strong>Launch / Close</strong>
+        buttons on the main screen. This panel is only for connecting your own scripts.
+      </p>
+      <details>
+        <summary style="cursor:pointer;margin:8px 0;">For developers: port, token and example script</summary>
+      <label class="field">
+        <span>Port</span>
+        <input type="number" id="api-port" min="1024" max="65535" />
+      </label>
+      <label class="field">
+        <span>API token (send as <code>Authorization: Bearer ...</code>)</span>
+        <input type="text" id="api-token" readonly />
+      </label>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button class="btn btn-ghost" id="api-copy-token">Copy token</button>
+        <button class="btn btn-ghost" id="api-new-token">New token</button>
+        <button class="btn btn-ghost" id="api-save-port">Save port</button>
+      </div>
+      <p class="modal-sub">
+        Open a profile by the <strong>NO.</strong> in the table, a range, or a name:
+        <code>14</code>, <code>"3-8"</code>, <code>profile_014_windows_desktop</code>.
+      </p>
+      <textarea id="api-example" rows="12" readonly style="width:100%;box-sizing:border-box;white-space:pre;overflow:auto;font-family:monospace;font-size:12px;"></textarea>
+      </details>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="api-copy-example">Copy example</button>
+        <button class="btn btn-primary" id="api-close">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk proxy assignment -->
+  <div class="modal-overlay" id="bulk-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="bulk-modal-title">
+      <h2 id="bulk-modal-title">Bulk assign proxies</h2>
+      <p class="modal-sub">
+        <strong>One line per proxy.</strong> Start a line with the profile's
+        <strong>NO.</strong> (the number in the first column of the table) to
+        send that proxy to it:<br/>
+        <code>14,isp.decodo.com:10001:user:pass</code> &mdash; profile in row 14<br/>
+        <code>14-16,isp.decodo.com:10001:user:pass</code> &mdash; rows 14 to 16, same proxy<br/>
+        <code>profile_014,...</code> or a full name like
+        <code>profile_014_windows_desktop,...</code> targets by file name instead.<br/><br/>
+        <strong>No number</strong> on a line = spread round-robin across every
+        profile not targeted above.<br/>
+        Proxy formats: <code>host:port:user:pass</code>,
+        <code>user:pass@host:port</code>, <code>http://host:port,user,pass</code>.
+        Lines that can't be matched are skipped and listed below &mdash; nothing is
+        silently saved wrong.
+      </p>
+      <textarea id="bulk-proxies" rows="10" placeholder="14,isp.decodo.com:10001:user:pass&#10;15,isp.decodo.com:10002:user:pass&#10;16_windows_desktop,http://host:port,user,pass"></textarea>
+      <pre class="modal-sub" id="bulk-result" hidden style="white-space:pre-wrap;max-height:160px;overflow:auto;margin-top:8px;"></pre>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="bulk-cancel">Cancel</button>
+        <button class="btn btn-primary" id="bulk-save">Assign proxies</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename profile -->
+  <div class="modal-overlay" id="rename-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="rename-modal-title">
+      <h2 id="rename-modal-title">Rename profile</h2>
+      <label class="field">
+        <span>Name</span>
+        <input type="text" id="rename-name" placeholder="profile_014_windows_desktop" />
+      </label>
+      <p class="modal-sub">Spaces and special characters get converted to underscores automatically.</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="rename-cancel">Cancel</button>
+        <button class="btn btn-primary" id="rename-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit fingerprint -->
+  <div class="modal-overlay" id="fp-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="fp-modal-title">
+      <h2 id="fp-modal-title">Edit fingerprint</h2>
+      <p class="modal-sub" id="fp-modal-sub"></p>
+      <div class="fp-grid">
+        <label class="field">
+          <span>Platform</span>
+          <select id="fp-platform"></select>
+        </label>
+        <label class="field" id="fp-gpu-field">
+          <span>GPU</span>
+          <select id="fp-gpu"></select>
+        </label>
+        <label class="field">
+          <span>Device class</span>
+          <select id="fp-device-class"></select>
+        </label>
+        <label class="field">
+          <span id="fp-hardware-label">Hardware / screen</span>
+          <select id="fp-hardware"></select>
+        </label>
+        <label class="field fp-span2">
+          <span>Location</span>
+          <select id="fp-locale"></select>
+        </label>
+        <label class="field">
+          <span>Canvas seed</span>
+          <div class="fp-seed-row">
+            <input type="number" id="fp-seed" />
+            <button class="btn btn-ghost btn-small" id="fp-randomize-seed" type="button" title="Randomize">🎲</button>
+          </div>
+        </label>
+      </div>
+      <p class="modal-sub fp-ios-caveat" id="fp-ios-caveat" hidden>
+        ⚠ iOS note: real Chrome on iPhone/iPad is a WebKit wrapper, not Chromium — this tool can only launch real Chromium, so an iOS profile is an inherent engine mismatch no values can fully fix. Weaker spoof than every other platform here.
+      </p>
+      <p class="modal-sub fp-preview-label">Auto-derived from your selections (not directly editable — always kept consistent with Platform):</p>
+      <p class="modal-sub fp-preview" id="fp-user-agent-preview"></p>
+      <p class="modal-sub fp-preview" id="fp-fonts-preview"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="fp-cancel">Cancel</button>
+        <button class="btn btn-primary" id="fp-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team management -->
+  <div class="modal-overlay" id="team-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="team-modal-title">
+      <h2 id="team-modal-title">Members &amp; Invites</h2>
+      <p class="modal-sub">Members</p>
+      <div id="team-members-list" class="team-members-list"></div>
+
+      <p class="modal-sub team-section-label" id="team-invite-label">Create invite</p>
+      <div class="team-invite-row" id="team-invite-row">
+        <select id="team-invite-role">
+          <option value="staff">Staff</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button class="btn btn-primary btn-small" id="team-create-invite">Generate code</button>
+      </div>
+      <p class="modal-sub team-invite-code" id="team-invite-result" hidden></p>
+
+      <p class="modal-sub team-section-label">Join a team</p>
+      <div class="team-invite-row">
+        <input type="text" id="team-join-code" placeholder="Paste invite code" />
+        <button class="btn btn-ghost btn-small" id="team-join-btn">Join</button>
+      </div>
+      <p class="modal-sub">Joining a team replaces your current organization with theirs — any profiles in your current org should be pushed/backed up first if you want to keep access to them separately.</p>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="team-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Extension management -->
+  <div class="modal-overlay" id="ext-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="ext-modal-title">
+      <h2 id="ext-modal-title">Extension Management</h2>
+      <p class="modal-sub">
+        Every extension here loads into every profile automatically — the
+        same set, every launch, including profiles you haven't created yet.
+        There's no remove button here by design; once added, an extension
+        stays.
+      </p>
+      <div id="ext-list" class="team-members-list"></div>
+
+      <p class="modal-sub team-section-label" id="ext-lock-status">Checking lock status…</p>
+      <div class="team-invite-row">
+        <input type="datetime-local" id="ext-unlock-input" />
+        <button class="btn btn-ghost btn-small" id="ext-set-unlock">Set unlock time</button>
+      </div>
+
+      <p class="modal-sub team-section-label">Add from Chrome Web Store</p>
+      <div class="team-invite-row">
+        <input type="text" id="ext-webstore-url" placeholder="Paste Chrome Web Store URL or extension ID" />
+        <button class="btn btn-primary btn-small" id="ext-add-webstore">Add</button>
+      </div>
+
+      <p class="modal-sub team-section-label">Or add manually</p>
+      <div class="team-invite-row">
+        <button class="btn btn-ghost btn-small" id="ext-add-folder">Add from folder</button>
+        <button class="btn btn-ghost btn-small" id="ext-add-zip">Add from .zip</button>
+      </div>
+      <p class="modal-sub">
+        "Folder" means an already-unpacked extension (a folder with
+        manifest.json at its root, or one level inside — the format you get
+        from "Load unpacked" in Chrome, or from unzipping a .crx).
+      </p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="ext-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

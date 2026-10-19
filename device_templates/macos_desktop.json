@@ -1,0 +1,22 @@
+{
+  "_note": "Spoofs the OS-facing fingerprint (UA, platform, GPU strings, fonts) to look like macOS. IMPORTANT CAVEAT: the underlying Chromium binary launched by patchright is still a real Windows binary on this machine, so anything that depends on actual OS behaviour rather than JS-readable properties (subtle font rendering/antialiasing, native dialog styling, some timing characteristics) will NOT match a real Mac. This is a partial spoof, good enough for most JS-based fingerprint checks, not a substitute for actually running on macOS hardware/VM.",
+  "profile_id": "macos_desktop",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "platform": "MacIntel",
+  "viewport": { "width": 1728, "height": 1117 },
+  "locale": "en-AU",
+  "timezone_id": "Australia/Melbourne",
+  "geolocation": { "latitude": -37.8136, "longitude": 144.9631 },
+  "hardware_concurrency": 8,
+  "device_memory": 16,
+  "canvas_seed": 771102,
+  "webgl_vendor": "Google Inc. (Apple)",
+  "webgl_renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
+  "fonts": ["Helvetica Neue", "Arial", "Times New Roman", "SF Pro", "Menlo", "Courier New"],
+  "proxy": {
+    "server": "http://your-proxy-host:port",
+    "username": "your-proxy-user",
+    "password": "your-proxy-pass"
+  },
+  "storage_state_path": "profiles/macos_desktop_state.json"
+}

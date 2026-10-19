@@ -1,0 +1,58 @@
+name: Build Trickster.exe
+
+# Runs on Windows in GitHub's cloud, builds Trickster.exe and publishes it
+# under "Releases" (tag: latest). Runs on every push to main, or press
+# "Run workflow" on the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Trickster.exe
+        shell: cmd
+        run: build_exe.bat
+
+      - name: Check the exe exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/Trickster.exe)) { throw "dist/Trickster.exe was not produced" }
+          Get-Item dist/Trickster.exe | Select-Object Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Trickster
+          path: dist/Trickster.exe
+
+      - name: Publish to Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          gh release delete latest --yes --cleanup-tag || echo "no old release to delete"
+          gh release create latest dist/Trickster.exe \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --latest \
+            --title "Trickster - Antidetect application" \
+            --notes "Download Trickster.exe and double-click to run. Built automatically from commit ${{ github.sha }}."
+          gh release view latest --repo "${{ github.repository }}"

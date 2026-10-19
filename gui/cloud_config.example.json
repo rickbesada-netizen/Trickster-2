@@ -1,0 +1,4 @@
+{
+  "supabase_url": "https://your-project-ref.supabase.co",
+  "supabase_anon_key": "your-anon-public-key"
+}

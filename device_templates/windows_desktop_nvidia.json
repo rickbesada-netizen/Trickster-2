@@ -1,0 +1,21 @@
+{
+  "profile_id": "windows_desktop_nvidia",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  "platform": "Win32",
+  "viewport": { "width": 1920, "height": 1080 },
+  "locale": "en-AU",
+  "timezone_id": "Australia/Melbourne",
+  "geolocation": { "latitude": -37.8136, "longitude": 144.9631 },
+  "hardware_concurrency": 12,
+  "device_memory": 16,
+  "canvas_seed": 918273,
+  "webgl_vendor": "Google Inc. (NVIDIA)",
+  "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "fonts": ["Arial", "Calibri", "Cambria", "Segoe UI", "Times New Roman", "Verdana", "Consolas"],
+  "proxy": {
+    "server": "http://your-proxy-host:port",
+    "username": "your-proxy-user",
+    "password": "your-proxy-pass"
+  },
+  "storage_state_path": "profiles/windows_desktop_nvidia_state.json"
+}

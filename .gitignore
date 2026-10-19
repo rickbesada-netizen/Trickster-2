@@ -1,0 +1,10 @@
+gui/.cloud_session.json
+profiles/*.json
+!profiles/README.md
+profiles/user_data/
+*_state.json
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
