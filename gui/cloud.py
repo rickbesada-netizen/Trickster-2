@@ -94,6 +94,25 @@ CONFIG_PATH = _writable_config if _writable_config.exists() else _RESOURCE_DIR /
 SESSION_PATH = _WRITABLE_DIR / ".cloud_session.json"  # gitignored in dev — local only either way
 
 
+
+def _local_state_readable_here(zf) -> bool:
+    """True if the zip's Chrome "Local State" encryption key can be opened on
+    this Windows account (i.e. the profile was saved on this PC)."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import base64
+        import json as _json
+        import win32crypt
+        state = _json.loads(zf.read("Local State").decode("utf-8", "replace"))
+        key = base64.b64decode(state["os_crypt"]["encrypted_key"])
+        if key[:5] == b"DPAPI":
+            key = key[5:]
+        win32crypt.CryptUnprotectData(key, None, None, None, 0)
+        return True
+    except Exception:
+        return False
+
 class CloudSync:
     def __init__(self):
         self.client: Client | None = None
@@ -383,6 +402,8 @@ class CloudSync:
                 with zipfile.ZipFile(zip_path) as zf:
                     names = zf.namelist()
                     came_from = zf.read(MACHINE_MARKER).decode("utf-8", "replace") if MACHINE_MARKER in names else None
+                    if came_from is None and _local_state_readable_here(zf):
+                        came_from = machine_id()  # older save: its key opens on this PC, so it's ours
                     if came_from != machine_id():
                         # Saved on a different computer (or an older version that didn't
                         # record which). Its encrypted cookies/passwords can't be read

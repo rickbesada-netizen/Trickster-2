@@ -24,6 +24,7 @@ python -m PyInstaller --name Trickster --onefile --windowed --noconfirm ^
   --hidden-import pywintypes ^
   --hidden-import chromium_engine ^
   --hidden-import updater ^
+  --hidden-import win32crypt ^
   --hidden-import PIL.Image ^
   --hidden-import PIL.ImageDraw ^
   --collect-all patchright ^
