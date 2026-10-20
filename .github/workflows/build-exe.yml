@@ -27,6 +27,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Stamp build number
+        shell: bash
+        run: echo "${{ github.run_number }}" > version.txt
+
       - name: Build Trickster.exe
         shell: cmd
         run: build_exe.bat
@@ -65,5 +69,5 @@ jobs:
             --target "${{ github.sha }}" \
             --latest \
             --title "Trickster - Antidetect application" \
-            --notes "Download TricksterSetup.exe and double-click it to install (uninstall from Settings > Apps). Trickster.exe is the portable version. Built automatically from commit ${{ github.sha }}."
+            --notes "Build ${{ github.run_number }}. Download TricksterSetup.exe and double-click it to install (uninstall from Settings > Apps). Trickster.exe is the portable version. Built automatically from commit ${{ github.sha }}."
           gh release view latest --repo "${{ github.repository }}"

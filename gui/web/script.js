@@ -982,6 +982,14 @@ window.addEventListener('pywebviewready', async () => {
   const setupRetry = document.getElementById('setup-retry');
 
   async function runChromiumSetup() {
+    try {
+      setupStatus.textContent = 'Checking for updates...';
+      const st = await window.pywebview.api.startup_tasks();
+      if (st && st.updating) {
+        setupStatus.textContent = 'Updating Trickster - it will reopen by itself in a moment.';
+        return;
+      }
+    } catch (e) { /* carry on */ }
     setupStatus.textContent = 'Setting up the browser engine — this can take a minute on first run.';
     setupSpinner.hidden = false;
     setupRetry.hidden = true;

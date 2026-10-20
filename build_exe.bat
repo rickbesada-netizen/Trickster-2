@@ -10,6 +10,7 @@ REM   build_exe.bat
 python -m PyInstaller --name Trickster --onefile --windowed --noconfirm ^
   --icon "assets\icon.ico" ^
   --add-data "assets;assets" ^
+  --add-data "version.txt;." ^
   --add-data "gui/web;gui/web" ^
   --add-data "fingerprint_injection.js;." ^
   --add-data "gui/cloud_config.json;gui" ^
@@ -22,6 +23,7 @@ python -m PyInstaller --name Trickster --onefile --windowed --noconfirm ^
   --hidden-import pythoncom ^
   --hidden-import pywintypes ^
   --hidden-import chromium_engine ^
+  --hidden-import updater ^
   --hidden-import PIL.Image ^
   --hidden-import PIL.ImageDraw ^
   --collect-all patchright ^

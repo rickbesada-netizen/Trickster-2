@@ -39,6 +39,7 @@ import plan_runner
 import generate_profiles as generate_profiles_module
 import launcher
 import extension_policy
+import updater
 
 # Same reasoning as launcher.py: bundled resources (the gui/web HTML/CSS/JS)
 # vs. writable/persistent data (profiles/) need different base paths once
@@ -243,6 +244,26 @@ class Api:
         self._api_cfg["token"] = secrets.token_urlsafe(24)
         app_api.save_config(self._api_cfg_path, self._api_cfg)
         return self.api_status()
+
+    def startup_tasks(self):
+        """Runs before the browser-engine setup: moves old data in (once) and
+        installs a newer Trickster if one is published. Never raises."""
+        try:
+            if updater.migrate_old_data(PROFILES_DIR, log=lambda m: print(m, flush=True)):
+                print("[migrate] done", flush=True)
+        except Exception as e:
+            print(f"[migrate] skipped: {e}", flush=True)
+        if not getattr(sys, "frozen", False):
+            return {"updating": False}
+        try:
+            info = updater.check(RESOURCE_DIR)
+            if info.get("available"):
+                print(f"[update] build {info['build']} available, installing", flush=True)
+                updater.install(info["url"], updater.installed_exe_path(), log=lambda m: print(m, flush=True))
+                return {"updating": True}
+        except Exception as e:
+            print(f"[update] skipped: {e}", flush=True)
+        return {"updating": False}
 
     def ensure_chromium(self):
         """Called once by the frontend before anything else loads (see
