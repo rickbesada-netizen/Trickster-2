@@ -845,12 +845,21 @@ def build_context(p, profile: dict, headless: bool = False, debug_port: int | No
 
     context = None
     if own_exe:
-        try:
-            context = p.chromium.launch_persistent_context(executable_path=own_exe, **launch_kwargs)
-            print(f"Using Trickster's own Chromium: {own_exe}")
-        except Exception as e:
-            print(f"Own Chromium failed to start ({e}) - falling back to the standard browser.")
-            context = None
+        # Playwright turns Chromium's security sandbox OFF by default, which
+        # makes plain Chromium show a "problem with the sandbox / unsupported
+        # flag --no-sandbox" warning. Ask for the sandbox to stay ON; if that
+        # ever fails to start, retry the old way, then the standard browser.
+        for sandbox in (True, False):
+            try:
+                context = p.chromium.launch_persistent_context(
+                    executable_path=own_exe, chromium_sandbox=sandbox, **launch_kwargs)
+                print(f"Using Trickster's own Chromium: {own_exe} (sandbox={'on' if sandbox else 'off'})")
+                break
+            except Exception as e:
+                print(f"Own Chromium failed to start with sandbox={sandbox} ({e}).")
+                context = None
+        if context is None:
+            print("Falling back to the standard browser.")
     if context is None:
         context = p.chromium.launch_persistent_context(**launch_kwargs)
 
