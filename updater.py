@@ -37,10 +37,30 @@ def _json(url, timeout=15):
     return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode())
 
 
+def _attempt_file():
+    return Path(tempfile.gettempdir()) / "trickster_update_attempt.txt"
+
+
+def _mark_attempt():
+    try:
+        import time
+        _attempt_file().write_text(str(time.time()))
+    except OSError:
+        pass
+
+
+def _recently_tried(minutes=30):
+    try:
+        import time
+        return time.time() - float(_attempt_file().read_text()) < minutes * 60
+    except Exception:
+        return False
+
+
 def check(resource_dir):
     """Returns {"available": bool, "build": int, "url": str|None}."""
     mine = local_build(resource_dir)
-    if mine <= 0:
+    if mine <= 0 or _recently_tried():  # never retry in a loop
         return {"available": False, "build": 0, "url": None}
     rel = _json(API)
     m = re.search(r"Build\s+(\d+)", rel.get("body") or "")
@@ -56,8 +76,11 @@ def install(url, installed_exe, log=print):
     with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Trickster"}), timeout=60) as r, open(path, "wb") as out:
         shutil.copyfileobj(r, out)
     log(f"[update] downloaded {path}")
-    cmd = f'"{path}" /SILENT /CLOSEAPPLICATIONS /NORESTART && start "" "{installed_exe}"'
-    subprocess.Popen(["cmd", "/c", cmd], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    _mark_attempt()
+    # Run the installer directly (no cmd wrapper - its quote handling garbled the
+    # command). The installer reopens Trickster itself when it finishes.
+    subprocess.Popen([path, "/SILENT", "/CLOSEAPPLICATIONS", "/NORESTART"],
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     threading.Timer(1.0, os._exit, [0]).start()
 

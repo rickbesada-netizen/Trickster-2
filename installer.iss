@@ -34,6 +34,8 @@ Name: "{autodesktop}\Trickster"; Filename: "{app}\Trickster.exe"; Tasks: desktop
 
 [Run]
 Filename: "{app}\Trickster.exe"; Description: "Open Trickster now"; Flags: nowait postinstall skipifsilent
+; After a silent (automatic) update, reopen Trickster by itself.
+Filename: "{app}\Trickster.exe"; Flags: nowait; Check: WizardSilent
 
 [UninstallDelete]
 ; The downloaded browser and the log are re-creatable; profiles are kept.
