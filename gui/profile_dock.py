@@ -158,21 +158,40 @@ def _apply(profile_id: str, color: str, badge: str, existing_hwnds: set):
         print(f"Taskbar AUMID skipped for {profile_id}: win32comext.propsys not available "
               f"(should ship with pywin32 — try 'pip install --upgrade pywin32')")
 
-    # Chromium re-asserts its own window icon itself around window
-    # creation and navigation events, which silently overwrites a
-    # one-shot WM_SETICON call if we only set it once right after the
-    # window appears. Reapplying repeatedly for the first ~20s (well
-    # past startup + first navigation) outlasts that, instead of
-    # racing it once and losing.
-    for i in range(20):
+    # Chromium re-asserts its own window icon around window creation and
+    # navigation, silently overwriting a one-shot WM_SETICON. Keep re-applying
+    # (quickly at first, then every few seconds) for as long as the window
+    # exists, so the numbered icon sticks for the whole session.
+    print(f"Taskbar window for {profile_id}: hwnd={hwnd} title={win32gui.GetWindowText(hwnd)!r}")
+    i = 0
+    while True:
         try:
+            if not win32gui.IsWindow(hwnd):
+                break
             _set_window_icon(hwnd, color, badge)
             if i == 0:
                 print(f"Taskbar icon set for {profile_id} (badge {badge!r})")
         except Exception as e:
             print(f"Taskbar icon skipped for {profile_id}: {e}")
             break
-        time.sleep(1)
+        i += 1
+        time.sleep(1 if i < 30 else 3)
+
+
+def _is_main_window(hwnd) -> bool:
+    """A real browser window: not owned by another window, not a tool/popup
+    window, and of a sensible size. Small bubbles and helper windows made by
+    Chromium are skipped so the badge never lands on the wrong one."""
+    try:
+        if win32gui.GetWindow(hwnd, win32con.GW_OWNER):
+            return False
+        ex = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        if ex & win32con.WS_EX_TOOLWINDOW:
+            return False
+        l, t, r, b = win32gui.GetWindowRect(hwnd)
+        return (r - l) >= 300 and (b - t) >= 200
+    except Exception:
+        return True
 
 
 def _find_hwnd(profile_id: str, existing_hwnds: set):
@@ -194,7 +213,8 @@ def _find_hwnd(profile_id: str, existing_hwnds: set):
     current = []
 
     def _enum(hwnd, _):
-        if win32gui.IsWindowVisible(hwnd) and win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1":
+        if win32gui.IsWindowVisible(hwnd) and win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1" \
+                and _is_main_window(hwnd):
             current.append(hwnd)
 
     win32gui.EnumWindows(_enum, None)
@@ -234,7 +254,20 @@ def _font_for(text: str):
     return _font_cache[key]
 
 
+_icon_cache = {}
+
+
 def _set_window_icon(hwnd, color: str, badge: str):
+    key = (color, badge)
+    if key in _icon_cache:  # built once, reused every time (no handle leak)
+        big, small = _icon_cache[key]
+        win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_BIG, big)
+        win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_SMALL, small)
+        return
+    _build_and_set_icon(hwnd, color, badge)
+
+
+def _build_and_set_icon(hwnd, color: str, badge: str):
     """Builds a small square icon (background colour + number badge, same
     look as the favicon) and assigns it directly to this window via
     WM_SETICON — this is what the now-separated taskbar button, the
@@ -250,6 +283,7 @@ def _set_window_icon(hwnd, color: str, badge: str):
         tmp.close()
         hicon_big = win32gui.LoadImage(0, tmp.name, win32con.IMAGE_ICON, 32, 32, win32con.LR_LOADFROMFILE)
         hicon_small = win32gui.LoadImage(0, tmp.name, win32con.IMAGE_ICON, 16, 16, win32con.LR_LOADFROMFILE)
+        _icon_cache[(color, badge)] = (hicon_big, hicon_small)
         win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_BIG, hicon_big)
         win32gui.SendMessage(hwnd, win32con.WM_SETICON, win32con.ICON_SMALL, hicon_small)
     finally:
