@@ -245,6 +245,14 @@ class Api:
         app_api.save_config(self._api_cfg_path, self._api_cfg)
         return self.api_status()
 
+    def engine_status(self):
+        """What the browser-engine setup is doing right now (for the setup screen)."""
+        try:
+            import chromium_engine
+            return {"text": chromium_engine.PROGRESS.get("text", "")}
+        except Exception:
+            return {"text": ""}
+
     def startup_tasks(self):
         """Runs before the browser-engine setup: moves old data in (once) and
         installs a newer Trickster if one is published. Never raises."""

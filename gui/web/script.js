@@ -993,7 +993,18 @@ window.addEventListener('pywebviewready', async () => {
     setupStatus.textContent = 'Setting up the browser engine — this can take a minute on first run.';
     setupSpinner.hidden = false;
     setupRetry.hidden = true;
-    const result = await window.pywebview.api.ensure_chromium();
+    const poll = setInterval(async () => {
+      try {
+        const st = await window.pywebview.api.engine_status();
+        if (st && st.text) setupStatus.textContent = st.text;
+      } catch (e) { /* ignore */ }
+    }, 1000);
+    let result;
+    try {
+      result = await window.pywebview.api.ensure_chromium();
+    } finally {
+      clearInterval(poll);
+    }
     if (result.ok) {
       setupGate.hidden = true;
       authGate.hidden = false;

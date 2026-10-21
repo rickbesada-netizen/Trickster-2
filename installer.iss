@@ -37,6 +37,16 @@ Filename: "{app}\Trickster.exe"; Description: "Open Trickster now"; Flags: nowai
 ; After a silent (automatic) update, reopen Trickster by itself.
 Filename: "{app}\Trickster.exe"; Flags: nowait; Check: WizardSilent
 
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    if UninstallSilent or (MsgBox('Also delete all Trickster data on this computer (profiles, saved logins, the downloaded browser)? Your cloud copy is not affected.', mbConfirmation, MB_YESNO) = IDYES) then
+      DelTree(ExpandConstant('{app}'), True, True, True);
+  end;
+end;
+
 [UninstallDelete]
 ; The downloaded browser and the log are re-creatable; profiles are kept.
 Type: filesandordirs; Name: "{app}\browsers"

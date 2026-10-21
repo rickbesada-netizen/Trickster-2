@@ -27,6 +27,13 @@ EXE_RELATIVE = Path("chrome-win") / "chrome.exe"
 MAX_REVISIONS_TO_TRY = 40  # some snapshot numbers have no Windows build; walk back to one that does
 
 
+PROGRESS = {"text": ""}  # read by the app so the setup screen can show what is happening
+
+
+def _say(msg: str):
+    PROGRESS["text"] = msg
+
+
 def engine_root() -> Path:
     env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     base = Path(env) if env else Path(__file__).resolve().parent / "browsers"
@@ -62,6 +69,7 @@ def ensure(root: Optional[Path] = None, base: Optional[str] = None,
     if have:
         return {"ok": True, "exe": have, "message": "Browser engine already installed."}
 
+    _say("Finding the latest browser build...")
     try:
         latest = int(_get(f"{base}/LAST_CHANGE").read().decode().strip())
     except Exception as e:
@@ -83,6 +91,7 @@ def ensure(root: Optional[Path] = None, base: Optional[str] = None,
         try:
             total = int(resp.headers.get("Content-Length") or 0)
             log(f"[engine] downloading Chromium build {rev} ({total / 1048576:.0f} MB)...")
+            _say(f"Downloading the browser engine ({total / 1048576:.0f} MB) - this only happens once...")
             fd, tmp_zip = tempfile.mkstemp(suffix=".zip", dir=str(root))
             done = 0
             next_report = 25 * 1048576
@@ -93,6 +102,8 @@ def ensure(root: Optional[Path] = None, base: Optional[str] = None,
                         break
                     out.write(chunk)
                     done += len(chunk)
+                    if total:
+                        _say(f"Downloading the browser engine: {done / 1048576:.0f} of {total / 1048576:.0f} MB")
                     if done >= next_report:
                         log(f"[engine] ...{done / 1048576:.0f} MB")
                         next_report += 25 * 1048576
@@ -105,6 +116,7 @@ def ensure(root: Optional[Path] = None, base: Optional[str] = None,
             staging = root / f"{rev}.partial"
             if staging.exists():
                 shutil.rmtree(staging, ignore_errors=True)
+            _say("Unpacking the browser engine...")
             with zipfile.ZipFile(tmp_zip) as zf:
                 zf.extractall(staging)
             if not (staging / EXE_RELATIVE).exists():
@@ -116,6 +128,7 @@ def ensure(root: Optional[Path] = None, base: Optional[str] = None,
                 if old.is_dir() and old.name != str(rev):
                     shutil.rmtree(old, ignore_errors=True)
             log(f"[engine] Chromium {rev} ready.")
+            _say("Browser engine ready.")
             return {"ok": True, "exe": str(target / EXE_RELATIVE), "message": f"Installed Chromium build {rev}."}
         except Exception as e:
             return {"ok": False, "exe": None, "message": f"Couldn't install the browser engine: {e}"}
