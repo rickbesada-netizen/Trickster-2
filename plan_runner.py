@@ -32,7 +32,6 @@ import bulk_proxy
 
 MIN_SECONDS = 5
 MAX_SECONDS = 4 * 3600
-MAX_PROFILES = 25
 MAX_PAGES_PER_PROFILE = 20
 
 
@@ -306,8 +305,6 @@ class PlanRunner:
             return {"ok": False, "message": problems[0], "problems": problems}
         if not items:
             return {"ok": False, "message": "Add at least one step (profile NO., website and seconds)."}
-        if len(items) > MAX_PROFILES:
-            return {"ok": False, "message": f"That's {len(items)} profiles - a plan can use up to {MAX_PROFILES}."}
         with self._lock:
             self._items = items
             self._active = True
@@ -344,7 +341,7 @@ class PlanRunner:
                 threads = [threading.Thread(target=self._run_item, args=(it,), daemon=True) for it in self._items]
                 for t in threads:
                     t.start()
-                    time.sleep(0.6)  # tiny stagger so the PC isn't hit by 25 launches in one instant
+                    time.sleep(0.6)  # tiny stagger so the PC isn't hit by every launch in one instant
                 for t in threads:
                     t.join()
             else:

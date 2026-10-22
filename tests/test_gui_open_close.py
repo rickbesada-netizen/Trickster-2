@@ -98,9 +98,6 @@ class GuiOpenClose(unittest.TestCase):
     def test_bad_input(self):
         self.assertFalse(self.api.open_profiles("")["ok"])
         self.assertFalse(self.api.open_profiles("999999")["ok"])
-        r = self.api.open_profiles("1-40")
-        self.assertFalse(r["ok"])
-        self.assertIn("25", r["message"])
         self.assertEqual(self.api.open_files(), [])
 
 

@@ -720,8 +720,6 @@ class Api:
         paths, problems = bulk_proxy.resolve_many(text, self._profile_files())
         if not paths:
             return {"ok": False, "message": problems[0] if problems else "Type a profile NO. first, like 14 or 3-8"}
-        if len(paths) > 25:
-            return {"ok": False, "message": f"That's {len(paths)} profiles - open up to 25 at a time so the computer doesn't choke."}
         opened, already, failed = [], [], []
         for path in paths:
             try:

@@ -632,7 +632,7 @@ is purely internal to how `launcher.py` hands the proxy to Chromium.
 
 On the main screen: type a NO. in **Open by NO.** (`14`, a range `3-8`, or a list `1,5,20-25`) and
 press Enter. Every row shows **Launch** (or **Close** while open), the checkbox bar has
-**Open selected / Close selected**, and **Close all** shuts everything. Up to 25 at once.
+**Open selected / Close selected**, and **Close all** shuts everything. No limit on how many.
 
 ## Timed plan
 
@@ -648,7 +648,15 @@ press Enter. Every row shows **Launch** (or **Close** while open), the checkbox 
   No mouse movement or clicking is done.
 - Choose **One after another** or **All at the same time**, then **Run plan**. The clock for each page starts
   once it has loaded; the profile closes (session saved as normal) after its last page. **Stop** closes everything.
-- A NO. range (`3-5`) in a row sends all of them to that site for that time. Up to 25 profiles, 20 sites each.
+- **Paste a script** (fast for many profiles): click **Paste a script**, paste one line per step as
+  `profiles | website | seconds | options`, then **Fill the table** or **Fill and run**. Options are separated
+  by `;`: `scroll`, `at 10 press Down x3`, `at 30 type hello`. Lines starting with `#` are ignored. Example:
+  ```
+  1-20 | instagram.com | 60 | scroll
+  1-20 | facebook.com | 45 | scroll; at 10 press Down x3; at 30 type hello
+  21 | google.com | 30
+  ```
+- A NO. range (`3-5`) in a row sends all of them to that site for that time. No limit on profiles; up to 20 sites each.
 
 ## Built-in API (optional, for scripts)
 
