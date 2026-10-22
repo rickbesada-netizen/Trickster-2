@@ -85,7 +85,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Real browser test (own Chromium, sandbox, taskbar icon)
-        run: python tests/windows_smoke.py
+        shell: pwsh
+        run: |
+          python tests/windows_smoke.py *>&1 | Tee-Object -FilePath smoke.txt
+          $lines = Get-Content smoke.txt | Select-Object -Last 45
+          $msg = ($lines -join "%0A")
+          Write-Host "::notice title=windows smoke results::$msg"
+          if (Select-String -Path smoke.txt -Pattern "\[FAIL\]|Traceback" -Quiet) { Write-Host "::error title=windows smoke FAILED::$msg"; exit 1 }
 
   verify:
     needs: build
@@ -98,32 +104,32 @@ jobs:
       - name: Install silently, check app starts, then uninstall and check the folder is gone
         shell: pwsh
         run: |
-          $dir = "$env:LOCALAPPDATA\Programs\Trickster"
-          Get-ChildItem dl
-          Start-Process -FilePath "dl\TricksterSetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
-          if (-not (Test-Path "$dir\Trickster.exe")) { throw "FAIL: Trickster.exe not installed" }
-          Write-Host "PASS: installed to $dir"
-          $key = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like "Trickster*" }
-          if (-not $key) { throw "FAIL: not listed in Settings > Apps" }
-          Write-Host "PASS: listed in Settings > Apps"
-          # the silent install reopens Trickster by itself; give it time to set up its browser
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          $log = "$dir\trickster.log"
-          $ready = $false
-          while ($sw.Elapsed.TotalSeconds -lt 240) {
-            Start-Sleep -Seconds 5
-            if ((Test-Path $log) -and (Select-String -Path $log -Pattern "Browser engine ready|\[engine\] Chromium .* ready|already installed" -Quiet)) { $ready = $true; break }
-          }
-          Write-Host "---- trickster.log ----"
-          if (Test-Path $log) { Get-Content $log -Tail 40 }
-          Write-Host "-----------------------"
-          if (-not (Get-Process Trickster -ErrorAction SilentlyContinue)) { throw "FAIL: Trickster is not running (it closed by itself)" }
-          Write-Host "PASS: Trickster is running"
-          if (-not $ready) { throw "FAIL: browser engine not ready after 240s" }
-          Write-Host ("PASS: browser engine ready after {0:n0}s" -f $sw.Elapsed.TotalSeconds)
-          Get-Process Trickster -ErrorAction SilentlyContinue | Stop-Process -Force
-          Start-Sleep -Seconds 3
-          Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
-          Start-Sleep -Seconds 5
-          if (Test-Path $dir) { Get-ChildItem $dir -Recurse | Select-Object -First 20 FullName; throw "FAIL: folder still there after uninstall" }
-          Write-Host "PASS: uninstall removed the whole folder"
+          $out = @()
+          function Say($m) { $script:out += $m; Write-Host $m }
+          $failed = $false
+          try {
+            $dir = "$env:LOCALAPPDATA\Programs\Trickster"
+            Start-Process -FilePath "dl\TricksterSetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+            if (Test-Path "$dir\Trickster.exe") { Say "PASS installed to $dir" } else { Say "FAIL Trickster.exe not installed"; $failed = $true }
+            $key = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like "Trickster*" }
+            if ($key) { Say "PASS listed in Settings > Apps" } else { Say "FAIL not listed in Settings > Apps"; $failed = $true }
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $log = "$dir\trickster.log"
+            $ready = $false
+            while ($sw.Elapsed.TotalSeconds -lt 240) {
+              Start-Sleep -Seconds 5
+              if ((Test-Path $log) -and (Select-String -Path $log -Pattern "Browser engine ready|Chromium .* ready|already installed" -Quiet)) { $ready = $true; break }
+            }
+            if (Get-Process Trickster -ErrorAction SilentlyContinue) { Say "PASS Trickster is running (reopened itself)" } else { Say "FAIL Trickster is not running"; $failed = $true }
+            if ($ready) { Say ("PASS browser engine ready after {0:n0}s" -f $sw.Elapsed.TotalSeconds) } else { Say "FAIL browser engine not ready after 240s"; $failed = $true }
+            if (Test-Path $log) { Say "--- log tail ---"; Get-Content $log -Tail 25 | ForEach-Object { Say $_ } }
+            Get-Process Trickster -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 3
+            if (Test-Path "$dir\unins000.exe") {
+              Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+              Start-Sleep -Seconds 5
+            }
+            if (Test-Path $dir) { Say "FAIL folder still there after uninstall"; $failed = $true } else { Say "PASS uninstall removed the whole folder" }
+          } catch { Say "FAIL error: $_"; $failed = $true }
+          $msg = ($out -join "%0A")
+          if ($failed) { Write-Host "::error title=install check FAILED::$msg"; exit 1 } else { Write-Host "::notice title=install check::$msg" }
