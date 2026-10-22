@@ -21,6 +21,7 @@ no clicking. For anything more custom, drive a profile from your own script
 through the local API.
 """
 
+import re
 import threading
 import time
 import urllib.parse
@@ -95,6 +96,89 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
         return [], f"up to {MAX_ACTIONS_PER_PAGE} actions per page"
     out.sort(key=lambda x: x["at"])
     return out, None
+
+
+# ---- paste-a-script ----------------------------------------------------------
+# One line per step:   profiles | website | seconds | options
+# options (separated by ;):  scroll   |   at 10 press Down arrow x3   |   at 30 type hello
+_KEY_ALIASES = {
+    "down": "Down arrow", "up": "Up arrow", "left": "Left arrow", "right": "Right arrow",
+    "pgdn": "Page Down", "pagedown": "Page Down", "pgup": "Page Up", "pageup": "Page Up",
+    "esc": "Escape", "return": "Enter", "spacebar": "Space",
+}
+
+
+def _key_label(name: str) -> Optional[str]:
+    n = " ".join(name.strip().lower().replace("arrow", " ").split())
+    flat = n.replace(" ", "")
+    if flat in _KEY_ALIASES:
+        return _KEY_ALIASES[flat]
+    for label in KEYS:
+        l = label.lower()
+        if l == n or l.replace(" arrow", "") == n or l.replace(" ", "") == flat:
+            return label
+    return None
+
+
+def _parse_option(opt: str, line_no: int):
+    """Returns ("scroll", True) or ("action", dict) or ("error", message)."""
+    o = opt.strip()
+    low = o.lower()
+    if low in ("scroll", "scroll down"):
+        return "scroll", True
+    m = re.match(r"^at\s+(\d+(?:\.\d+)?)\s*s?\s+(press|type)\s+(.+)$", o, re.I)
+    if not m:
+        return "error", f"Line {line_no}: couldn't read '{o}' (try: scroll, at 10 press Down, at 30 type hello)"
+    at, kind, rest = m.group(1), m.group(2).lower(), m.group(3).strip()
+    if kind == "type":
+        return "action", {"at": at, "type": "text", "value": rest, "repeat": 1}
+    repeat = 1
+    r = re.match(r"^(.*?)\s*(?:x|\u00d7)\s*(\d+)\s*(?:times)?$", rest, re.I)
+    if r:
+        rest, repeat = r.group(1), int(r.group(2))
+    label = _key_label(rest)
+    if not label:
+        return "error", f"Line {line_no}: unknown key '{rest}'"
+    return "action", {"at": at, "type": "key", "value": label, "repeat": repeat}
+
+
+def parse_script(text: str):
+    """Turns pasted lines into plan rows (the same shape the table uses).
+    Returns {"ok": bool, "rows": [...], "problems": [...]}"""
+    rows, problems = [], []
+    for line_no, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+        else:
+            parts = line.split(None, 3)
+        if len(parts) < 2:
+            problems.append(f"Line {line_no}: needs at least profiles and a website")
+            continue
+        no, url = parts[0], parts[1]
+        secs = parts[2] if len(parts) > 2 and parts[2] else "30"
+        opts = parts[3] if len(parts) > 3 else ""
+        if not re.fullmatch(r"\d+(\.\d+)?", secs):
+            problems.append(f"Line {line_no}: seconds should be a number (got '{secs}')")
+            continue
+        row = {"no": no, "url": url, "seconds": secs, "scroll": False, "actions": []}
+        bad = False
+        for opt in [o for o in opts.split(";") if o.strip()]:
+            kind, val = _parse_option(opt, line_no)
+            if kind == "error":
+                problems.append(val)
+                bad = True
+            elif kind == "scroll":
+                row["scroll"] = True
+            else:
+                row["actions"].append(val)
+        if not bad:
+            rows.append(row)
+    if not rows and not problems:
+        problems.append("Nothing to read yet - paste one line per step, like: 1-20 | example.com | 60 | scroll")
+    return {"ok": not problems, "rows": rows, "problems": problems}
 
 
 # ---- things that run ON the profile's own browser thread -------------------

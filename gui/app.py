@@ -765,6 +765,9 @@ class Api:
     def plan_run(self, steps, mode):
         return self._plan.run(steps, mode)
 
+    def plan_parse_script(self, text):
+        return plan_runner.parse_script(text)
+
     def plan_status(self):
         return self._plan.status()
 

@@ -491,6 +491,30 @@ document.getElementById('nav-plan').addEventListener('click', (e) => {
 });
 document.getElementById('plan-close').addEventListener('click', () => { planModal.hidden = true; });
 document.getElementById('plan-add-row').addEventListener('click', () => { addPlanRow(); });
+
+// --- Paste a script: one line per step, fills the table for you ---
+const pasteBox = document.getElementById('plan-paste-box');
+const pasteText = document.getElementById('plan-paste-text');
+const pasteMsg = document.getElementById('plan-paste-msg');
+document.getElementById('plan-paste-toggle').addEventListener('click', () => { pasteBox.hidden = !pasteBox.hidden; });
+
+async function fillFromScript() {
+  const res = await window.pywebview.api.plan_parse_script(pasteText.value);
+  pasteMsg.hidden = false;
+  if (!res.ok) {
+    pasteMsg.textContent = res.problems.join('\n');
+    return false;
+  }
+  planRows.innerHTML = '';
+  res.rows.forEach(addPlanRow);
+  savePlan();
+  pasteMsg.textContent = `Filled ${res.rows.length} step(s). Check the table above, then press Run plan.`;
+  return true;
+}
+document.getElementById('plan-paste-fill').addEventListener('click', fillFromScript);
+document.getElementById('plan-paste-run').addEventListener('click', async () => {
+  if (await fillFromScript()) document.getElementById('plan-run').click();
+});
 document.querySelectorAll('input[name=plan-mode]').forEach(r => r.addEventListener('change', savePlan));
 document.getElementById('plan-run').addEventListener('click', async () => {
   savePlan();

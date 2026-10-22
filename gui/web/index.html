@@ -223,8 +223,22 @@
       </table>
       <div class="modal-actions" style="justify-content:flex-start;">
         <button class="btn btn-ghost btn-small" id="plan-add-row">+ Add step</button>
+        <button class="btn btn-ghost btn-small" id="plan-paste-toggle">Paste a script</button>
         <label class="plan-mode"><input type="radio" name="plan-mode" value="one_by_one" checked /> One after another</label>
         <label class="plan-mode"><input type="radio" name="plan-mode" value="together" /> All at the same time</label>
+      </div>
+      <div id="plan-paste-box" hidden style="margin-top:8px;">
+        <p class="modal-sub" style="margin-bottom:6px;">
+          One line per step: <code>profiles | website | seconds | options</code>.
+          Options (separate with <code>;</code>): <code>scroll</code>, <code>at 10 press Down x3</code>, <code>at 30 type hello</code>.
+        </p>
+        <textarea id="plan-paste-text" rows="7" spellcheck="false" style="width:100%;font-family:monospace;"
+          placeholder="1-20 | instagram.com | 60 | scroll&#10;1-20 | facebook.com | 45 | scroll; at 10 press Down x3; at 30 type hello&#10;21 | google.com | 30"></textarea>
+        <div class="modal-actions" style="justify-content:flex-start;margin-top:6px;">
+          <button class="btn btn-primary btn-small" id="plan-paste-fill">Fill the table</button>
+          <button class="btn btn-ghost btn-small" id="plan-paste-run">Fill and run</button>
+        </div>
+        <pre class="modal-sub" id="plan-paste-msg" style="white-space:pre-wrap;" hidden></pre>
       </div>
       <pre class="modal-sub" id="plan-status" style="white-space:pre-wrap;max-height:180px;overflow:auto;margin-top:8px;" hidden></pre>
       <div class="modal-actions">
