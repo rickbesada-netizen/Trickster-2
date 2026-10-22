@@ -11,6 +11,12 @@ on:
 permissions:
   contents: write
 
+# Only one build at a time: a newer push cancels the older run, so two runs
+# can never delete each other's release.
+concurrency:
+  group: build-exe
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: windows-latest
@@ -75,6 +81,7 @@ jobs:
   # ---- Tests on a real Windows machine (they report; they never block the download) ----
   smoke:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -96,6 +103,7 @@ jobs:
   verify:
     needs: build
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -109,7 +117,7 @@ jobs:
           $failed = $false
           try {
             $dir = "$env:LOCALAPPDATA\Programs\Trickster"
-            Start-Process -FilePath "dl\TricksterSetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait
+            (Start-Process -FilePath "dl\TricksterSetup.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru).WaitForExit()
             if (Test-Path "$dir\Trickster.exe") { Say "PASS installed to $dir" } else { Say "FAIL Trickster.exe not installed"; $failed = $true }
             $key = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { (Get-ItemProperty $_.PSPath).DisplayName -like "Trickster*" }
             if ($key) { Say "PASS listed in Settings > Apps" } else { Say "FAIL not listed in Settings > Apps"; $failed = $true }
@@ -126,7 +134,7 @@ jobs:
             Get-Process Trickster -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Seconds 3
             if (Test-Path "$dir\unins000.exe") {
-              Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
+              (Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -PassThru).WaitForExit()
               Start-Sleep -Seconds 5
             }
             if (Test-Path $dir) { Say "FAIL folder still there after uninstall"; $failed = $true } else { Say "PASS uninstall removed the whole folder" }
