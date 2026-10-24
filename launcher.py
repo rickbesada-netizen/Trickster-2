@@ -883,6 +883,8 @@ def build_context(p, profile: dict, headless: bool = False, debug_port: int | No
     page.on("worker", inject_into_worker)
     context.on("serviceworker", inject_into_worker)
     page.on("load", lambda: apply_branding(page, profile, display_number))
+    if profile.get("is_mobile") and not headless:
+        fit_mobile_to_screen(context, page, profile)
 
     # The context's very first page (about:blank) already exists by the
     # time add_init_script() above runs, so that init script never reaches
@@ -936,6 +938,63 @@ def build_context(p, profile: dict, headless: bool = False, debug_port: int | No
     ]
 
     return context, page
+
+
+def fit_mobile_to_screen(context, page, profile: dict):
+    """Phone/tablet profiles emulate a fixed viewport (e.g. 412x915). On a
+    laptop screen, especially with Windows display scaling at 125-150%,
+    that plus the browser toolbar is taller than the screen, so the bottom
+    of every page is cut off and can't be reached. Shrink only what's drawn
+    on screen (DevTools' "fit to window" zoom) so the whole phone fits:
+    the page still sees exactly the same innerWidth/innerHeight,
+    devicePixelRatio, media queries and screen size, so the fingerprint
+    doesn't change."""
+    vw = profile["viewport"]["width"]
+    vh = profile["viewport"]["height"]
+    try:
+        cdp = context.new_cdp_session(page)
+        win_id = cdp.send("Browser.getWindowForTarget")["windowId"]
+        # Maximizing tells us how much room the screen really has (in the
+        # same units as the viewport, after display scaling and minus the
+        # taskbar). Then go back to a normal, phone-shaped window.
+        cdp.send("Browser.setWindowBounds", {"windowId": win_id, "bounds": {"windowState": "maximized"}})
+        time.sleep(0.3)
+        room = cdp.send("Browser.getWindowBounds", {"windowId": win_id})["bounds"]
+        cdp.send("Browser.setWindowBounds", {"windowId": win_id, "bounds": {"windowState": "normal"}})
+        if room.get("windowState") != "maximized":
+            print("Mobile view: couldn't measure the screen - left at full size.")
+            return
+        toolbar = 100  # tab strip + address bar + frame
+        scale = min(1.0, (room["height"] - toolbar) / vh, (room["width"] - 40) / vw)
+        scale = max(0.25, int(scale * 100) / 100)
+        width = max(520, int(vw * scale) + 40)
+        height = min(room["height"], int(vh * scale) + toolbar)
+        cdp.send("Browser.setWindowBounds", {"windowId": win_id, "bounds": {
+            "left": room["left"], "top": room["top"], "width": width, "height": height}})
+    except Exception as e:
+        print(f"Mobile view: window sizing skipped: {e}")
+        return
+    if scale >= 1.0:
+        return
+
+    metrics = {"width": vw, "height": vh, "mobile": True, "scale": scale,
+               "deviceScaleFactor": profile.get("device_scale_factor", 1)}
+    # The override only lasts while its CDP session stays attached, so keep
+    # every session referenced for the life of the context.
+    sessions = []
+
+    def apply(pg):
+        try:
+            s = context.new_cdp_session(pg)
+            s.send("Emulation.setDeviceMetricsOverride", metrics)
+            sessions.append(s)
+        except Exception as e:
+            print(f"Mobile view: fit-to-screen skipped for a tab: {e}")
+
+    apply(page)
+    context.on("page", apply)
+    context._fit_sessions = sessions
+    print(f"Mobile view: {vw}x{vh} shown at {int(scale * 100)}% so the whole page fits the screen.")
 
 
 def navigate(page, profile: dict, check_mode: bool = False, display_number: int | None = None, start_url: str | None = None):
