@@ -113,7 +113,18 @@ def _local_state_readable_here(zf) -> bool:
     except Exception:
         return False
 
+def _is_network_error(e) -> bool:
+    """True for "couldn't reach the server" type problems (not "your sign-in is invalid")."""
+    import socket
+    if isinstance(e, (httpx.TransportError, httpx.TimeoutException, socket.timeout, ConnectionError, TimeoutError, OSError)):
+        return True
+    text = f"{type(e).__name__} {e}".lower()
+    return any(w in text for w in ("timed out", "timeout", "connection", "network", "name resolution", "unreachable", "getaddrinfo"))
+
+
 class CloudSync:
+    offline = False
+
     def __init__(self):
         self.client: Client | None = None
         self.user = None
@@ -147,6 +158,19 @@ class CloudSync:
             )
             print("[cloud] _get_client: calling create_client...", flush=True)
             self.client = create_client(config["supabase_url"], config["supabase_anon_key"], options=options)
+            # Supabase swaps the refresh token for a new one roughly every hour while the app
+            # is open. If only the first one is on disk, the next start finds it used up and
+            # asks for a sign-in again. Save every new one as it arrives.
+            try:
+                def _keep(event, session):
+                    if session and event in ("SIGNED_IN", "TOKEN_REFRESHED"):
+                        try:
+                            self._save_session(session.access_token, session.refresh_token)
+                        except OSError:
+                            pass
+                self.client.auth.on_auth_state_change(_keep)
+            except Exception as e:  # noqa: BLE001
+                print(f"[cloud] couldn't watch token refreshes: {e}", flush=True)
             print("[cloud] _get_client: create_client returned", flush=True)
         return self.client
 
@@ -176,6 +200,7 @@ class CloudSync:
         run, restores it without needing email/password again. Returns
         True if restored successfully."""
         print("[cloud] try_restore_session: checking for saved session...", flush=True)
+        self.offline = False
         if not SESSION_PATH.exists():
             print("[cloud] try_restore_session: no saved session file", flush=True)
             return False
@@ -194,7 +219,12 @@ class CloudSync:
             return True
         except Exception as e:
             print(f"[cloud] try_restore_session: failed with {type(e).__name__}: {e}", flush=True)
-            # Saved session expired/invalid — fall back to requiring sign-in again.
+            if _is_network_error(e):
+                # No internet / slow connection right now - that is NOT a reason to throw the
+                # saved sign-in away. Keep it and let the app retry.
+                self.offline = True
+                return False
+            # The saved sign-in really is expired/invalid - require a fresh one.
             self.sign_out()
             return False
 

@@ -37,7 +37,11 @@ Security (this API can open logged-in browsers, so it is locked down):
 import base64
 import hmac
 import json
+import math
 import os
+import re
+import shutil
+import sys
 import secrets
 import queue
 import socket
@@ -296,6 +300,11 @@ class ProfileRunner:
     def close_all(self, wait: float = 25.0) -> List[str]:
         return self.close_many([e["profile_id"] for e in self.opened()], wait=wait)
 
+    def reset(self, profile_id: str) -> bool:
+        """Forgets a profile that is wrongly shown as open (its window is gone). Returns True if it was listed."""
+        with self._lock:
+            return self._running.pop(profile_id, None) is not None
+
 
 # --------------------------------------------------------------------------
 # the API itself
@@ -461,6 +470,319 @@ class LocalApi:
             raise ApiError(1000, res.get("message", "nothing assigned"))
         return {"message": res.get("message"), "assigned": res.get("details", []), "skipped": res.get("skipped", [])}
 
+    # ---- more endpoints (the ixBrowser local API has the same ones) ----
+    profiles_dir: Optional[Path] = None
+    user_data_root: Optional[Path] = None
+
+    def configure(self, profiles_dir, user_data_root):
+        self.profiles_dir = Path(profiles_dir)
+        self.user_data_root = Path(user_data_root)
+
+    def _read(self, path: Path) -> dict:
+        try:
+            return json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            raise ApiError(2007, f"Profile file {path.name} can't be read")
+
+    def _write(self, path: Path, data: dict):
+        path.write_text(json.dumps(data, indent=2))
+
+    def _require_closed(self, path: Path):
+        if self.runner.is_open(self._pid(path)):
+            raise ApiError(2009, f"{self._pid(path)} is open - close it first")
+
+    def _dir(self) -> Path:
+        if not self.profiles_dir:
+            raise ApiError(1000, "profiles folder isn't configured")
+        return self.profiles_dir
+
+    def _udd(self, path: Path) -> Path:
+        return (self.user_data_root or self._dir() / "user_data") / self._pid(path)
+
+    # fingerprint -------------------------------------------------------
+    _IDENTITY_KEYS = ("profile_id", "proxy", "group", "start_url", "storage_state_path")
+
+    def _reroll(self, path: Path) -> dict:
+        import generate_profiles
+        old = self._read(path)
+        no = self._files().index(path) + 1
+        used = set()
+        for p in self._files():
+            try:
+                used.add(json.loads(p.read_text()).get("canvas_seed"))
+            except (OSError, json.JSONDecodeError):
+                pass
+        new = generate_profiles.make_profile(no, used)
+        for k in self._IDENTITY_KEYS:
+            if k in old:
+                new[k] = old[k]
+        self._write(path, new)
+        return {"profile_id": self._pid(path), "user_agent": new.get("user_agent"), "platform": new.get("platform"),
+                "viewport": new.get("viewport"), "timezone": new.get("timezone_id"), "locale": new.get("locale")}
+
+    def profile_random_fingerprint(self, body):
+        path = self.resolve_one(body)
+        self._require_closed(path)
+        return self._reroll(path)
+
+    def profile_open_random(self, body):
+        path = self.resolve_one(body)
+        self._require_closed(path)
+        info = self._reroll(path)
+        data = self.profile_open(body)
+        data["fingerprint"] = info
+        return data
+
+    # create / copy / update / delete -------------------------------------
+    def _next_number(self) -> int:
+        nums = []
+        for p in self._dir().glob("profile_*.json"):
+            m = re.match(r"profile_(\d+)_", p.name)
+            if m:
+                nums.append(int(m.group(1)))
+        return (max(nums) if nums else 0) + 1
+
+    def profile_create(self, body):
+        import generate_profiles
+        count = int(body.get("count", 1))
+        if count < 1 or count > 5000:
+            raise ApiError(1000, "count must be 1 to 5000")
+        self._dir().mkdir(parents=True, exist_ok=True)
+        used = set()
+        for p in self._dir().glob("*.json"):
+            try:
+                used.add(json.loads(p.read_text()).get("canvas_seed"))
+            except (OSError, json.JSONDecodeError):
+                pass
+        start = self._next_number()
+        made = []
+        for i in range(start, start + count):
+            prof = generate_profiles.make_profile(i, used)
+            if body.get("group"):
+                prof["group"] = str(body["group"]).strip()
+            if body.get("url"):
+                prof["start_url"] = str(body["url"]).strip()
+            self._write(self._dir() / f"{prof['profile_id']}.json", prof)
+            made.append(prof["profile_id"])
+        return {"created": made, "count": len(made)}
+
+    def profile_copy(self, body):
+        import random
+        path = self.resolve_one(body)
+        count = max(1, min(500, int(body.get("count", 1))))
+        src = self._read(path)
+        made = []
+        for _ in range(count):
+            n = self._next_number()
+            kind = re.sub(r"^profile_\d+_", "", src.get("profile_id", path.stem))
+            new = dict(src)
+            new["profile_id"] = f"profile_{n:03d}_{kind}"
+            new["canvas_seed"] = random.randint(1, 2**31 - 1)
+            new.pop("storage_state_path", None)
+            self._write(self._dir() / f"{new['profile_id']}.json", new)
+            made.append(new["profile_id"])
+        return {"created": made, "count": len(made)}
+
+    _UPDATABLE = ("group", "start_url", "locale", "timezone_id", "geolocation")
+
+    def profile_update(self, body):
+        path = self.resolve_one(body)
+        data = self._read(path)
+        changed = []
+        for k in self._UPDATABLE:
+            if k in body:
+                v = body[k]
+                if v in (None, ""):
+                    data.pop(k, None)
+                else:
+                    data[k] = v
+                changed.append(k)
+        if "url" in body and "start_url" not in body:
+            data["start_url"] = body["url"] or None
+            if not data["start_url"]:
+                data.pop("start_url")
+            changed.append("start_url")
+        if "proxy" in body:
+            raw = body["proxy"]
+            if isinstance(raw, dict):
+                raw = ",".join([str(raw.get("server", "")), str(raw.get("username", "")), str(raw.get("password", ""))])
+            proxy = bulk_proxy.parse_proxy_string(str(raw or ""))
+            if not proxy:
+                raise ApiError(1000, "proxy not recognised - use host:port:user:pass or http://host:port,user,pass")
+            data["proxy"] = proxy
+            changed.append("proxy")
+        if not changed:
+            raise ApiError(1000, "nothing to update (allowed: group, start_url, locale, timezone_id, geolocation, proxy)")
+        self._write(path, data)
+        return {"profile_id": self._pid(path), "updated": changed}
+
+    def profile_delete(self, body):
+        paths = self._refs_from(body, "profile_id", "profiles", "no")
+        bin_dir = self._dir() / "_recycle"
+        bin_dir.mkdir(exist_ok=True)
+        deleted = []
+        for path in paths:
+            self._require_closed(path)
+            path.replace(bin_dir / path.name)
+            deleted.append(path.stem)
+        return {"deleted": deleted, "note": "moved to the recycle bin; empty-recycle-bin removes them for good"}
+
+    def empty_recycle_bin(self, body):
+        bin_dir = self._dir() / "_recycle"
+        n = 0
+        if bin_dir.exists():
+            for f in bin_dir.glob("*.json"):
+                shutil.rmtree((self.user_data_root or self._dir() / "user_data") / f.stem, ignore_errors=True)
+                f.unlink()
+                n += 1
+        return {"removed": n}
+
+    # groups -----------------------------------------------------------------
+    def _set_group(self, paths, name):
+        for path in paths:
+            d = self._read(path)
+            if name:
+                d["group"] = name
+            else:
+                d.pop("group", None)
+            self._write(path, d)
+
+    def group_list(self, body):
+        counts: dict = {}
+        for path in self._files():
+            try:
+                g = (json.loads(path.read_text()).get("group") or "").strip()
+            except (OSError, json.JSONDecodeError):
+                continue
+            if g:
+                counts[g] = counts.get(g, 0) + 1
+        rows = [{"name": n, "count": c} for n, c in sorted(counts.items())]
+        return {"list": rows, "total": len(rows)}
+
+    def group_create(self, body):
+        name = str(body.get("name") or "").strip()
+        if not name:
+            raise ApiError(1000, "name is required")
+        return {"name": name, "note": "a group exists once a profile is in it - use profile-update-groups-in-batches"}
+
+    def group_update(self, body):
+        old = str(body.get("group") or body.get("old_name") or body.get("group_id") or "").strip()
+        new = str(body.get("name") or body.get("new_name") or "").strip()
+        if not old or not new:
+            raise ApiError(1000, "group (current name) and name (new name) are required")
+        hit = [p for p in self._files() if (self._read(p).get("group") or "").strip() == old]
+        if not hit:
+            raise ApiError(2007, f"No profiles in group '{old}'")
+        self._set_group(hit, new)
+        return {"renamed": len(hit)}
+
+    def group_delete(self, body):
+        old = str(body.get("group") or body.get("name") or body.get("group_id") or "").strip()
+        hit = [p for p in self._files() if (self._read(p).get("group") or "").strip() == old]
+        if not hit:
+            raise ApiError(2007, f"No profiles in group '{old}'")
+        self._set_group(hit, "")
+        return {"ungrouped": len(hit)}
+
+    def profile_update_groups(self, body):
+        paths = self._refs_from(body, "profile_id", "profiles", "no")
+        name = str(body.get("group") or body.get("group_id") or "").strip()
+        self._set_group(paths, name)
+        return {"updated": len(paths), "group": name or None}
+
+    # cookies ----------------------------------------------------------------
+    def _on_page(self, path: Path, fn):
+        pid = self._pid(path)
+        out = {}
+
+        def run(page, stop_event):
+            out["v"] = fn(page.context)
+        done = self.runner.submit(pid, run)
+        if done is None:
+            raise ApiError(2009, "Open the profile first - cookies are read from the running browser")
+        if not done["event"].wait(30):
+            raise ApiError(2008, "Timed out talking to the browser")
+        if done["error"]:
+            raise ApiError(1000, str(done["error"]))
+        return out.get("v")
+
+    def profile_get_cookies(self, body):
+        path = self.resolve_one(body)
+        return {"cookies": self._on_page(path, lambda ctx: ctx.cookies())}
+
+    def profile_update_cookies(self, body):
+        path = self.resolve_one(body)
+        raw = body.get("cookie", body.get("cookies"))
+        if raw is None:
+            raise ApiError(1000, "cookie is required ('' clears all cookies)")
+        if raw == "":
+            self._on_page(path, lambda ctx: ctx.clear_cookies())
+            return {"cleared": True}
+        cookies = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(cookies, dict):
+            cookies = cookies.get("cookies", [cookies])
+        self._on_page(path, lambda ctx: ctx.add_cookies(cookies))
+        return {"added": len(cookies)}
+
+    # cache ------------------------------------------------------------------
+    _CACHE_DIRS = ("Cache", "Code Cache", "GPUCache", "DawnCache", "GrShaderCache", "ShaderCache")
+    _COOKIE_FILES = ("Cookies", "Cookies-journal", "Network/Cookies", "Network/Cookies-journal")
+    _PASSWORD_FILES = ("Login Data", "Login Data-journal", "Login Data For Account", "Login Data For Account-journal")
+
+    def _wipe(self, path: Path, dirs=(), files=()):
+        self._require_closed(path)
+        base = self._udd(path)
+        for d in dirs:
+            shutil.rmtree(base / d, ignore_errors=True)
+            shutil.rmtree(base / "Default" / d, ignore_errors=True)
+        for f in files:
+            for root in (base, base / "Default"):
+                try:
+                    (root / f).unlink()
+                except OSError:
+                    pass
+        return {"profile_id": self._pid(path)}
+
+    def profile_clear_cache(self, body):
+        return self._wipe(self.resolve_one(body), dirs=self._CACHE_DIRS)
+
+    def profile_clear_cache_and_cookies(self, body):
+        return self._wipe(self.resolve_one(body), dirs=self._CACHE_DIRS, files=self._COOKIE_FILES)
+
+    def profile_clear_saved_password(self, body):
+        return self._wipe(self.resolve_one(body), files=self._PASSWORD_FILES)
+
+    # window tools -------------------------------------------------------------
+    def profile_open_state_reset(self, body):
+        path = self.resolve_one(body)
+        return {"was_listed": self.runner.reset(self._pid(path))}
+
+    def arrange_tile(self, body):
+        if sys.platform != "win32":
+            raise ApiError(1000, "tiling windows is Windows-only")
+        import win32gui, win32api, win32con
+        wins = []
+
+        def enum(h, _):
+            if win32gui.IsWindowVisible(h) and win32gui.GetClassName(h) == "Chrome_WidgetWin_1":
+                l, t, r, b = win32gui.GetWindowRect(h)
+                if (r - l) >= 300 and (b - t) >= 200 and not win32gui.GetWindow(h, win32con.GW_OWNER):
+                    wins.append(h)
+        win32gui.EnumWindows(enum, None)
+        if not wins:
+            return {"arranged": 0}
+        sw, sh = win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1)
+        cols = int(body.get("columns") or max(1, math.ceil(math.sqrt(len(wins)))))
+        rows = math.ceil(len(wins) / cols)
+        w, h = sw // cols, sh // rows
+        for i, hwnd in enumerate(wins):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.MoveWindow(hwnd, (i % cols) * w, (i // cols) * h, w, h, True)
+        return {"arranged": len(wins), "columns": cols}
+
+    def native_opened_list(self, body):
+        return {"list": [e for e in self.runner.opened() if e.get("source") != "api"]}
+
     ROUTES = {
         "ping": "ping",
         "profile-list": "profile_list",
@@ -473,6 +795,27 @@ class LocalApi:
         "profile-close-all": "profile_close_all",
         "profile-update-proxy": "profile_update_proxy",
         "proxy-bulk-assign": "proxy_bulk_assign",
+        "profile-open-with-random-fingerprint": "profile_open_random",
+        "profile-random-fingerprint-configuration": "profile_random_fingerprint",
+        "profile-create": "profile_create",
+        "profile-copy": "profile_copy",
+        "profile-update": "profile_update",
+        "profile-delete": "profile_delete",
+        "empty-recycle-bin": "empty_recycle_bin",
+        "group-list": "group_list",
+        "group-create": "group_create",
+        "group-update": "group_update",
+        "group-delete": "group_delete",
+        "profile-update-groups-in-batches": "profile_update_groups",
+        "profile-get-cookies": "profile_get_cookies",
+        "profile-update-cookies": "profile_update_cookies",
+        "profile-clear-cache": "profile_clear_cache",
+        "profile-clear-cache-keep-extensions": "profile_clear_cache",
+        "profile-clear-cache-and-cookies": "profile_clear_cache_and_cookies",
+        "profile-clear-saved-user-password": "profile_clear_saved_password",
+        "profile-open-state-reset": "profile_open_state_reset",
+        "profile-opened-list-arrange-tile": "arrange_tile",
+        "native-client-profile-opened-list": "native_opened_list",
     }
 
     def dispatch(self, route: str, body: dict):

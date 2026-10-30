@@ -1032,9 +1032,18 @@ window.addEventListener('pywebviewready', async () => {
     if (result.ok) {
       setupGate.hidden = true;
       authGate.hidden = false;
-      const restored = await window.pywebview.api.cloud_try_restore();
+      let restored = await window.pywebview.api.cloud_try_restore();
+      // No internet right now? Your saved sign-in is kept - keep trying for a minute.
+      for (let i = 0; !restored.signed_in && restored.offline && i < 12; i++) {
+        setAuthNote('Waiting for the internet... you will be signed in automatically.');
+        await new Promise(r => setTimeout(r, 5000));
+        restored = await window.pywebview.api.cloud_try_restore();
+      }
       if (restored.signed_in) {
+        setAuthNote('');
         await enterApp(restored.email);
+      } else if (restored.offline) {
+        setAuthNote("Can't reach the internet. Check your connection and reopen Trickster - you won't need to sign in again.");
       }
       // else: gate just stays visible, waiting for sign-in — nothing else to do.
     } else {

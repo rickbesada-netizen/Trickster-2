@@ -161,6 +161,7 @@ class Api:
         # purpose: pywebview only exposes public attributes to the JS side.
         self._runner = app_api.ProfileRunner(launcher, self._profile_files, lambda: self.cloud)
         self._local_api = app_api.LocalApi(self._runner, self._profile_files, self._api_describe, self.bulk_assign_proxies)
+        self._local_api.configure(PROFILES_DIR, launcher.USER_DATA_ROOT)
         self._plan = plan_runner.PlanRunner(self._runner, self._profile_files)
         self._api_cfg_path = WRITABLE_DIR / "api_config.json"
         self._api_cfg = app_api.load_config(self._api_cfg_path)
@@ -1321,7 +1322,8 @@ class Api:
 
     def cloud_try_restore(self):
         restored = self.cloud.try_restore_session()
-        return {"signed_in": restored, "email": self.cloud.user.email if restored else None}
+        return {"signed_in": restored, "email": self.cloud.user.email if restored else None,
+                "offline": bool(getattr(self.cloud, "offline", False))}
 
     def cloud_sign_out(self):
         self.cloud.sign_out()

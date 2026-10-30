@@ -81,6 +81,7 @@ jobs:
   # ---- Tests on a real Windows machine (they report; they never block the download) ----
   smoke:
     runs-on: windows-latest
+    timeout-minutes: 15
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +96,7 @@ jobs:
         shell: pwsh
         run: |
           python tests/windows_smoke.py *>&1 | Tee-Object -FilePath smoke.txt
-          $lines = Get-Content smoke.txt | Select-Object -Last 45
+          $lines = Get-Content smoke.txt | Select-Object -Last 70
           $msg = ($lines -join "%0A")
           Write-Host "::notice title=windows smoke results::$msg"
           if (Select-String -Path smoke.txt -Pattern "\[FAIL\]|Traceback" -Quiet) { Write-Host "::error title=windows smoke FAILED::$msg"; exit 1 }
@@ -103,6 +104,7 @@ jobs:
   verify:
     needs: build
     runs-on: windows-latest
+    timeout-minutes: 15
     timeout-minutes: 20
     steps:
       - uses: actions/download-artifact@v4
