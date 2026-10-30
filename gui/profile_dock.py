@@ -325,6 +325,8 @@ def get_window_prop(hwnd, spec):
         pv = ctypes.create_string_buffer(24)
         key = _key(spec)
         hr = f["get"](ptr, ctypes.addressof(key), ctypes.addressof(pv))
+        if hr == 1:  # S_FALSE: nothing there
+            return ""
         if hr != 0:
             raise OSError(f"GetValue failed (0x{hr & 0xFFFFFFFF:08X})")
         vt = int.from_bytes(pv[0:2], "little")
