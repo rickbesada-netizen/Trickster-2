@@ -92,48 +92,16 @@ def main():
         again.append(win32gui.SendMessage(h, win32con.WM_GETICON, win32con.ICON_BIG, 0))
     check("icon still set after 35s", any(again), str(again))
 
-    # --- diagnostics: which way of opening a window's property store works here? ---
+    # taskbar identity as Windows sees it (read straight from the window)
     try:
-        import pythoncom
-        from win32comext.propsys import propsys, pscon
-        import pywintypes
-        pythoncom.CoInitialize()
-        variants = {
-            "propsys.IID_IPropertyStore": propsys.IID_IPropertyStore,
-            "pywintypes.IID string": pywintypes.IID("{886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99}"),
-            "pythoncom.IID_IUnknown": pythoncom.IID_IUnknown,
-        }
-        for name, iid in variants.items():
-            try:
-                st = propsys.SHGetPropertyStoreForWindow(mains[0], iid)
-                print(f"DIAG {name}: OK -> {st}", flush=True)
-                try:
-                    v = st.GetValue(pscon.PKEY_AppUserModel_ID)
-                    print(f"DIAG   GetValue ok: {v.GetValue()!r}", flush=True)
-                except Exception as e2:  # noqa: BLE001
-                    print(f"DIAG   GetValue failed: {e2}", flush=True)
-            except Exception as e:  # noqa: BLE001
-                print(f"DIAG {name}: {e}", flush=True)
-        import pywin32_testutil  # noqa
-    except Exception as e:  # noqa: BLE001
-        print(f"DIAG setup: {type(e).__name__}: {e}", flush=True)
-    import importlib.metadata as md
-    try:
-        print("DIAG pywin32 version:", md.version("pywin32"), flush=True)
-    except Exception:  # noqa: BLE001
-        pass
-
-    try:
-        from win32comext.propsys import propsys, pscon
         for h in mains:
-            store = propsys.SHGetPropertyStoreForWindow(h, propsys.IID_IPropertyStore)
-            val = store.GetValue(pscon.PKEY_AppUserModel_ID).GetValue()
-            print("AUMID:", val, flush=True)
-            print("taskbar id:", val, flush=True)
-    except Exception as e:
-        # GitHub's Windows Server machines have no taskbar shell, so the id can't be
-        # set or read there (the launcher logs "Taskbar AUMID skipped"). Not an app bug.
-        print(f"[SKIP] taskbar id not available on this machine: {e}", flush=True)
+            aumid = dock.get_window_prop(h, dock._PKEY_APPID)
+            relaunch = dock.get_window_prop(h, dock._PKEY_RELAUNCH_COMMAND)
+            print("AUMID:", repr(aumid), "relaunch:", repr(relaunch), flush=True)
+            check("taskbar id is per profile", aumid.startswith("Trickster.Profile."), repr(aumid))
+            check("Chromium's own relaunch info removed", relaunch == "", repr(relaunch))
+    except Exception as e:  # noqa: BLE001
+        check("taskbar identity readable", False, str(e))
 
     runner.close_many([entry["profile_id"]], wait=30)
     time.sleep(3)

@@ -145,7 +145,15 @@ def _apply(profile_id: str, color: str, badge: str, existing_hwnds: set):
               f"(visible Chromium window titles seen: {titles!r})")
         return
 
-    if _AUMID_AVAILABLE:
+    done_ctypes = False
+    try:
+        apply_taskbar_props(hwnd, profile_id)
+        print(f"Taskbar identity set for {profile_id} (own id, Chromium relaunch info cleared)")
+        done_ctypes = True
+    except Exception as e:  # noqa: BLE001
+        print(f"Taskbar identity (direct) skipped for {profile_id}: {e}")
+
+    if _AUMID_AVAILABLE and not done_ctypes:
         try:
             store = propsys.SHGetPropertyStoreForWindow(hwnd, propsys.IID_IPropertyStore)
             aumid = f"Trickster.Profile.{profile_id}"
@@ -238,6 +246,104 @@ def _find_hwnd(profile_id: str, existing_hwnds: set):
         if title == profile_id or title.startswith(profile_id + " "):
             return hwnd
     return None
+
+
+
+# --- Taskbar identity through plain ctypes -------------------------------------
+# pywin32 (312) can't open a window's property store from another process ("no interface
+# object registered that supports this IID"), so this talks to Windows directly.
+_PKEY_APPID = ("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3", 5)          # AppUserModel.ID
+_PKEY_RELAUNCH_COMMAND = ("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3", 2)
+_PKEY_RELAUNCH_ICON = ("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3", 3)
+_PKEY_RELAUNCH_NAME = ("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3", 4)
+_IID_IPROPERTYSTORE = "886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"
+
+
+def _guid(text):
+    import ctypes
+    import uuid
+    return ctypes.create_string_buffer(uuid.UUID(text).bytes_le, 16)
+
+
+def _open_store(hwnd):
+    """Returns (ptr, vtable functions) for the window's property store."""
+    import ctypes
+    from ctypes import WINFUNCTYPE, c_long, c_ulong, c_void_p, POINTER, cast
+    ptr = c_void_p()
+    iid = _guid(_IID_IPROPERTYSTORE)
+    fn = ctypes.windll.shell32.SHGetPropertyStoreForWindow
+    fn.argtypes = [ctypes.c_void_p, c_void_p, POINTER(c_void_p)]
+    fn.restype = c_long
+    hr = fn(hwnd, ctypes.byref(iid), ctypes.byref(ptr))
+    if hr != 0 or not ptr.value:
+        raise OSError(f"SHGetPropertyStoreForWindow failed (0x{hr & 0xFFFFFFFF:08X})")
+    vtbl = cast(ptr, POINTER(POINTER(c_void_p)))[0]
+    return ptr, {
+        "get": WINFUNCTYPE(c_long, c_void_p, c_void_p, c_void_p)(vtbl[5]),
+        "set": WINFUNCTYPE(c_long, c_void_p, c_void_p, c_void_p)(vtbl[6]),
+        "commit": WINFUNCTYPE(c_long, c_void_p)(vtbl[7]),
+        "release": WINFUNCTYPE(c_ulong, c_void_p)(vtbl[2]),
+    }
+
+
+def _key(spec):
+    import ctypes
+    buf = ctypes.create_string_buffer(20)
+    buf.raw = _guid(spec[0]).raw + spec[1].to_bytes(4, "little")
+    return buf
+
+
+def set_window_props(hwnd, values: dict):
+    """values: {pkey_spec: str | None}. None clears the property (a window with no
+    relaunch info uses its own window icon on the taskbar)."""
+    import ctypes
+    ptr, f = _open_store(hwnd)
+    try:
+        for spec, val in values.items():
+            pv = ctypes.create_string_buffer(24)
+            keep = None
+            if val is not None:
+                keep = ctypes.create_unicode_buffer(val)
+                pv[0:2] = (31).to_bytes(2, "little")            # VT_LPWSTR
+                pv[8:16] = ctypes.addressof(keep).to_bytes(8, "little")
+            key = _key(spec)
+            hr = f["set"](ptr, ctypes.addressof(key), ctypes.addressof(pv))
+            if hr != 0:
+                raise OSError(f"SetValue failed (0x{hr & 0xFFFFFFFF:08X})")
+        hr = f["commit"](ptr)
+        if hr != 0:
+            raise OSError(f"Commit failed (0x{hr & 0xFFFFFFFF:08X})")
+    finally:
+        f["release"](ptr)
+
+
+def get_window_prop(hwnd, spec):
+    """Reads a string property from a window ("" when unset)."""
+    import ctypes
+    ptr, f = _open_store(hwnd)
+    try:
+        pv = ctypes.create_string_buffer(24)
+        key = _key(spec)
+        hr = f["get"](ptr, ctypes.addressof(key), ctypes.addressof(pv))
+        if hr != 0:
+            raise OSError(f"GetValue failed (0x{hr & 0xFFFFFFFF:08X})")
+        vt = int.from_bytes(pv[0:2], "little")
+        if vt != 31:
+            return ""
+        addr = int.from_bytes(pv[8:16], "little")
+        return ctypes.wstring_at(addr)
+    finally:
+        f["release"](ptr)
+
+
+def apply_taskbar_props(hwnd, profile_id):
+    """Own taskbar identity + drop Chromium's relaunch info so the numbered window icon shows."""
+    set_window_props(hwnd, {
+        _PKEY_APPID: f"Trickster.Profile.{profile_id}",
+        _PKEY_RELAUNCH_COMMAND: None,
+        _PKEY_RELAUNCH_ICON: None,
+        _PKEY_RELAUNCH_NAME: None,
+    })
 
 
 _font_cache = {}
