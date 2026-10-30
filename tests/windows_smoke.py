@@ -47,12 +47,32 @@ def main():
     files = sorted(p for p in tmp.glob("*.json") if not p.stem.endswith("_state"))
     runner = app_api.ProfileRunner(launcher, lambda: files, lambda: None)
 
-    entry = runner.start(files[1], source="smoke", with_cdp=False, start_url="https://example.com/")
+    entry = runner.start(files[1], source="smoke", with_cdp=True, start_url="https://example.com/")
     ready = entry["ready"].wait(180)
     check("profile 2 opens", ready and not entry.get("error"), str(entry.get("error") or ""))
     if not ready:
         return
     time.sleep(12)
+
+    # the real page must be in front and scrollable by a script (YouTube Shorts did not scroll before)
+    try:
+        from patchright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            br = pw.chromium.connect_over_cdp(entry["ws"])
+            ctx = br.contexts[0]
+            print("tabs:", [pg.url for pg in ctx.pages], flush=True)
+            pg = ctx.pages[0]
+            pg.goto("data:text/html,<body style='margin:0'><div style='height:5000px'>tall</div></body>")
+            vis = pg.evaluate("document.visibilityState")
+            pg.mouse.move(300, 300)
+            pg.mouse.wheel(0, 800)
+            pg.wait_for_timeout(800)
+            y = pg.evaluate("window.scrollY")
+            check("first tab is visible (in front)", vis == "visible", vis)
+            check("script scrolling works", y > 0, f"scrollY={y}")
+            check("no stray helper tabs left", len(ctx.pages) == 1, str(len(ctx.pages)))
+    except Exception as e:  # noqa: BLE001
+        check("script can drive the page", False, repr(e))
 
     cmds = chrome_command_lines()
     main_cmds = [c for c in cmds if "--type=" not in c]

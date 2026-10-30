@@ -599,6 +599,12 @@ def run_extension_monitor_loop(context, page, known_ids: list[str] = None, stop_
 
     try:
         probe_page = context.new_page()
+        # The check tab must stay in the BACKGROUND: a new tab grabs the front, which left the
+        # real page hidden (videos paused, scripted scrolling did nothing, a blank tab on top).
+        try:
+            page.bring_to_front()
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:
         print(f"Extension monitor: couldn't open probe page ({e}) — falling back to just "
               "waiting for the window to close normally, with no tampering protection.")
@@ -1078,23 +1084,42 @@ def launch(profile: dict, headless: bool = False, check_mode: bool = False, debu
                     pass
 
             navigate(page, profile, check_mode=check_mode, display_number=display_number, start_url=start_url)
-            if ready_event is not None:
-                ready_event.set()  # the window is up and has loaded its page (timed plans start their clock here)
-
             print(f"Profile '{profile_id}' launched. Close the browser window to exit.")
             if getattr(context, "_required_extension_count", 0):
                 known_ids = getattr(context, "_required_extension_known_ids", [])
-                ensure_extensions_enabled(context, known_ids)
-                ensure_extensions_incognito_allowed(context, known_ids)
-                ensure_developer_mode_enabled(context)
+                # The extension housekeeping opens a few helper tabs that flash on screen and pull
+                # focus away from the real page (so videos paused and scripted scrolling did
+                # nothing). Do it at most once a day per profile, BEFORE telling the caller the
+                # profile is ready, then put the real page back in front.
+                marker = user_data_dir / ".extensions_checked"
+                try:
+                    fresh = marker.exists() and (time.time() - marker.stat().st_mtime) < 86400
+                except OSError:
+                    fresh = False
+                if not fresh:
+                    ensure_extensions_enabled(context, known_ids)
+                    ensure_extensions_incognito_allowed(context, known_ids)
+                    ensure_developer_mode_enabled(context)
+                    try:
+                        marker.write_text("ok")
+                    except OSError:
+                        pass
                 # No more background "is the extension still there?" polling that
                 # closed and relaunched the window - it caused profiles to keep
                 # closing/reopening by themselves. The extensions are checked once
                 # at launch (above) and then the window is simply left alone.
                 _close_stray_tabs(context, page)
+                try:
+                    page.bring_to_front()
+                except Exception:  # noqa: BLE001
+                    pass
+                if ready_event is not None:
+                    ready_event.set()
                 _wait_until_closed(page, stop_event, commands, tick=_take_snapshot if cloud is not None else None)
                 tampered = False
             else:
+                if ready_event is not None:
+                    ready_event.set()  # the window is up and has loaded its page (timed plans start their clock here)
                 _wait_until_closed(page, stop_event, commands, tick=_take_snapshot if cloud is not None else None)
                 tampered = False
             if cloud is not None:
