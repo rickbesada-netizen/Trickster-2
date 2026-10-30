@@ -889,7 +889,32 @@ def _make_handler(api: LocalApi, token_fn: Callable[[], str]):
             except Exception as e:  # noqa: BLE001
                 self._send(500, {"error": {"code": 500, "message": f"Internal error: {e}"}, "data": None})
 
+        def _welcome(self):
+            page = (
+                "<html><head><meta charset='utf-8'><title>Trickster API</title></head>"
+                "<body style='font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:60px auto;line-height:1.5'>"
+                "<h2>Trickster API is running</h2>"
+                "<p>This address is for scripts and tools, not for a web browser, so you will not see "
+                "anything useful here.</p>"
+                "<p>To try it: go back to Trickster, open <b>API</b> in the left menu and click "
+                "<b>Test it now</b>.</p></body></html>").encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(page)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(page)
+
         def do_GET(self):
+            path = urllib.parse.urlparse(self.path).path
+            if path in ("/", "/api/v2", "/api/v2/") and not self.headers.get("Authorization") \
+                    and not self.headers.get("X-API-Key"):
+                try:
+                    host = urllib.parse.urlsplit("//" + (self.headers.get("Host") or "")).hostname or ""
+                except ValueError:
+                    host = ""
+                if host.lower() in _LOCAL_HOSTS:
+                    return self._welcome()
             if not self._guard():
                 return
             q = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}

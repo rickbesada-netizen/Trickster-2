@@ -217,6 +217,25 @@ class Api:
             "open_profiles": len(self._runner.opened()),
         }
 
+    def api_selftest(self):
+        """Call our own API the way a script would, so a beginner can see it work."""
+        import json as _json
+        import urllib.request
+        st = self.api_status()
+        if not st["running"]:
+            return {"ok": False, "message": "The API is switched off. Tick \"Enable the API\" first."}
+        try:
+            req = urllib.request.Request(
+                st["url"] + "profile-list", data=_json.dumps({"limit": 3}).encode(),
+                headers={"Authorization": "Bearer " + st["token"], "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                res = _json.loads(r.read().decode())
+            if res["error"]["code"] != 0:
+                return {"ok": False, "message": res["error"]["message"]}
+            return {"ok": True, "message": "It works. The API answered correctly."}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": f"Could not reach the API: {e}"}
+
     def api_set_enabled(self, enabled):
         self._api_cfg["enabled"] = bool(enabled)
         app_api.save_config(self._api_cfg_path, self._api_cfg)

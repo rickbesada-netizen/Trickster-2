@@ -267,14 +267,20 @@
         use the <strong>Open by NO.</strong> box and the <strong>Launch / Close</strong>
         buttons on the main screen. This panel is only for connecting your own scripts.
       </p>
-      <p class="modal-sub">
-        <strong>How to use it:</strong> the API is already running while this app is open - there is
-        nothing to start. Click <strong>Copy link</strong> and <strong>Copy token</strong> and paste them
-        into your tool. For the ready-made Python script: open the section below, click
-        <strong>Copy example</strong>, paste it into Notepad, save it as <code>test.py</code>, then run
-        <code>pip install patchright requests</code> and <code>python test.py</code> in a terminal.
-        The link and token are already filled in.
-      </p>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button class="btn btn-primary" id="api-selftest">Test it now</button>
+        <span class="modal-sub" id="api-selftest-result" style="margin:0;"></span>
+      </div>
+      <h3 style="margin:14px 0 6px;">Step by step (about 3 minutes)</h3>
+      <ol class="modal-sub" style="padding-left:20px;line-height:1.7;">
+        <li><strong>Nothing to turn on.</strong> The API starts by itself while Trickster is open. If the box above is ticked, it is on.</li>
+        <li>Click <strong>Test it now</strong>. If it says "It works", you are ready.</li>
+        <li>Do <strong>not</strong> paste the link into a web browser. A browser can't log in to it, so it only shows a page saying it is running. The link is for scripts.</li>
+        <li>Install Python from python.org (tick "Add Python to PATH"). Then press the Windows key, type <code>cmd</code>, press Enter, and run: <code>pip install patchright requests</code></li>
+        <li>Below, open "For developers", click <strong>Copy example</strong>, paste it into Notepad, and save it on your Desktop as <code>test.py</code> (Save as type: All files).</li>
+        <li>In the black window type <code>cd Desktop</code>, press Enter, then <code>python test.py</code>, press Enter. Profile 14 opens, visits example.com and closes.</li>
+        <li>Change the <code>14</code> in the script to any <strong>NO.</strong> from your profile table to use another profile.</li>
+      </ol>
       <details>
         <summary style="cursor:pointer;margin:8px 0;">For developers: port, token and example script</summary>
       <label class="field">
