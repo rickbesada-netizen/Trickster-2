@@ -254,6 +254,10 @@
     <div class="modal modal-wide" role="dialog" aria-labelledby="api-modal-title">
       <h2 id="api-modal-title">Local API</h2>
       <p class="modal-sub" id="api-status-line"></p>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:0;">
+        <button class="btn btn-ghost" id="api-copy-link">Copy link</button>
+        <button class="btn btn-ghost" id="api-copy-token-top">Copy token</button>
+      </div>
       <label class="field" style="flex-direction:row;align-items:center;gap:8px;">
         <input type="checkbox" id="api-enabled" style="width:auto;" />
         <span>Enable the API (only this computer can reach it)</span>
@@ -262,6 +266,14 @@
         <strong>You don't need this for normal use.</strong> To open or close profiles,
         use the <strong>Open by NO.</strong> box and the <strong>Launch / Close</strong>
         buttons on the main screen. This panel is only for connecting your own scripts.
+      </p>
+      <p class="modal-sub">
+        <strong>How to use it:</strong> the API is already running while this app is open - there is
+        nothing to start. Click <strong>Copy link</strong> and <strong>Copy token</strong> and paste them
+        into your tool. For the ready-made Python script: open the section below, click
+        <strong>Copy example</strong>, paste it into Notepad, save it as <code>test.py</code>, then run
+        <code>pip install patchright requests</code> and <code>python test.py</code> in a terminal.
+        The link and token are already filled in.
       </p>
       <details>
         <summary style="cursor:pointer;margin:8px 0;">For developers: port, token and example script</summary>

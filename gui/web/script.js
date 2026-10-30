@@ -918,6 +918,12 @@ document.getElementById('api-new-token').addEventListener('click', async () => {
 });
 document.getElementById('api-copy-token').addEventListener('click', () =>
   copyText(document.getElementById('api-token').value, 'Token copied.'));
+document.getElementById('api-copy-link').addEventListener('click', async () => {
+  const st = await window.pywebview.api.api_status();
+  copyText(st.url, 'Link copied: ' + st.url);
+});
+document.getElementById('api-copy-token-top').addEventListener('click', () =>
+  copyText(document.getElementById('api-token').value, 'Token copied.'));
 document.getElementById('api-copy-example').addEventListener('click', () =>
   copyText(document.getElementById('api-example').value, 'Example copied.'));
 
