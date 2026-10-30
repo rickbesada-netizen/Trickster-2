@@ -569,10 +569,25 @@ body {
   width: 380px;
   max-width: calc(100vw - 40px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  /* never taller than the window: scroll inside the box instead of running off-screen */
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 
 .modal-wide {
   width: 520px;
+}
+
+/* the bottom button row (Done / Save / Cancel) stays visible while the content scrolls */
+.modal > .modal-actions:last-child {
+  position: sticky;
+  bottom: -24px;
+  margin: 12px -24px -24px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
 }
 
 .modal h2 {
