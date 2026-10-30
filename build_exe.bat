@@ -11,6 +11,7 @@ python -m PyInstaller --name Trickster --onefile --windowed --noconfirm ^
   --icon "assets\icon.ico" ^
   --add-data "assets;assets" ^
   --add-data "version.txt;." ^
+  --add-data "docs/TRICKSTER_API_GUIDE.md;docs" ^
   --add-data "gui/web;gui/web" ^
   --add-data "fingerprint_injection.js;." ^
   --add-data "gui/cloud_config.json;gui" ^

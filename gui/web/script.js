@@ -925,6 +925,13 @@ document.getElementById('api-selftest').addEventListener('click', async () => {
   out.textContent = r.message;
   out.style.color = r.ok ? '#4ade80' : '#f87171';
 });
+document.getElementById('api-save-guide').addEventListener('click', async () => {
+  const r = await window.pywebview.api.api_save_guide();
+  setStatus(r.message, r.ok ? 'ok' : 'bad');
+  const out = document.getElementById('api-selftest-result');
+  out.textContent = r.message;
+  out.style.color = r.ok ? '#4ade80' : '#f87171';
+});
 document.getElementById('api-copy-link').addEventListener('click', async () => {
   const st = await window.pywebview.api.api_status();
   copyText(st.url, 'Link copied: ' + st.url);

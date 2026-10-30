@@ -217,6 +217,36 @@ class Api:
             "open_profiles": len(self._runner.opened()),
         }
 
+    def api_save_guide(self):
+        """Save the full API guide (for people and for other AIs) to the Desktop and show it."""
+        src = None
+        for base in (Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "_MEIPASS", None) else None,
+                     Path(__file__).resolve().parent.parent):
+            if base and (base / "docs" / "TRICKSTER_API_GUIDE.md").exists():
+                src = base / "docs" / "TRICKSTER_API_GUIDE.md"
+                break
+        if not src:
+            return {"ok": False, "message": "The guide file is missing from this build."}
+        try:
+            text = src.read_text(encoding="utf-8")
+            port = self._api_cfg["port"]
+            note = (f"> This computer's Trickster API address: http://127.0.0.1:{port}/api/v2/  "
+                    f"(port {port}). The token is NOT in this file: copy it from Trickster > API > Copy token.\n\n")
+            text = text.replace("---\n## 0.", note + "---\n## 0.", 1)
+            home = Path.home()
+            folder = next((d for d in (home / "Desktop", home / "OneDrive" / "Desktop", home / "Downloads", home)
+                           if d.exists()), home)
+            dest = folder / "Trickster-API-Guide.md"
+            dest.write_text(text, encoding="utf-8")
+            try:
+                if sys.platform == "win32":
+                    subprocess.Popen(["explorer", "/select,", str(dest)])
+            except OSError:
+                pass
+            return {"ok": True, "message": f"Saved to {dest}", "path": str(dest)}
+        except OSError as e:
+            return {"ok": False, "message": f"Couldn't save the guide: {e}"}
+
     def api_selftest(self):
         """Call our own API the way a script would, so a beginner can see it work."""
         import json as _json
