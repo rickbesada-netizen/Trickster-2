@@ -59,6 +59,7 @@ def main():
     check("uses Trickster's own browser", any("trickster-chromium" in c for c in main_cmds),
           f"({len(main_cmds)} main process)")
     check("sandbox is on (no --no-sandbox)", main_cmds and not any("--no-sandbox" in c for c in main_cmds))
+    check("videos autoplay and flag bar hidden", any("--autoplay-policy=no-user-gesture-required" in c and "--test-type" in c for c in main_cmds))
     check("start page requested", any("example.com" in c for c in main_cmds) or True)
 
     wins = []

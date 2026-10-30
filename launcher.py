@@ -743,6 +743,10 @@ def build_context(p, profile: dict, headless: bool = False, debug_port: int | No
 
     # Never offer to "restore pages" / reopen last session's tabs.
     args += ["--hide-crash-restore-bubble", "--disable-session-crashed-bubble", "--no-first-run"]
+    # Videos (YouTube Shorts etc.) start playing by themselves even when a script is driving the
+    # window, and the grey "unsupported command-line flag" bar is hidden (--test-type only
+    # switches that warning off; it does not change what websites see).
+    args += ["--autoplay-policy=no-user-gesture-required", "--test-type"]
 
     extension_paths = discover_extensions()
     if extension_paths:

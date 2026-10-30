@@ -317,6 +317,7 @@ SOCKS is accepted as `socks5://host:port`. Send the proxy with `profile-update-p
 
 - **Open a few at a time.** Each profile is a full Chromium. A typical PC handles 5 to 20 open at once; more needs more RAM and CPU. Open, work, close, repeat.
 - **Always close** in a `finally:` block so logins are saved and memory is freed. If a script crashes, call `profile-close-all` or `profile-open-state-reset`.
+- **Videos play by themselves** (YouTube, Shorts, TikTok) in profiles opened by Trickster; no click is needed. To pause or skip, press `k` (play/pause) or use the page's own buttons.
 - **Pace actions** like a person: random 1 to 5 second pauses, not instant bursts. Platforms flag inhuman speed regardless of fingerprints.
 - **One proxy per profile**, kept for that profile permanently. Do not share one proxy across many accounts.
 - **Timeouts:** opening can take up to 90 s the first time. Use `timeout=120` on HTTP calls.
