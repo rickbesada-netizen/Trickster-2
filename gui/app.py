@@ -79,6 +79,14 @@ BUNDLED_EXTENSIONS_DIR = RESOURCE_DIR / "extensions"
 # startup so an older install doesn't keep loading them next to the new one.
 RETIRED_EXTENSIONS = ["Cold_Turkey_Blocker"]
 
+# AppBlocker Web Filter is published on the Chrome Web Store. On startup we
+# upgrade the bundled copy to the published build (stable store ID + update_url)
+# so Chrome force-installs it (non-removable) and auto-updates it from the store,
+# instead of running a local unpacked copy. Falls back to the bundled copy if the
+# store can't be reached.
+APPBLOCKER_WEBSTORE_ID = "ikmgldgfiabicemfehgekepejmgdblkj"
+WEBSTORE_UPDATE_URL = "https://clients2.google.com/service/update2/crx"
+
 
 def _remove_retired_extensions():
     for name in RETIRED_EXTENSIONS:
@@ -155,6 +163,7 @@ class Api:
     def __init__(self):
         self.cloud = CloudSync()
         self.window = None  # set in main(), needed for file-picker dialogs
+        self._ensure_appblocker_webstore()
         self._sync_extension_removal_policy()
 
         # Built-in local API (see app_api.py). Underscore-prefixed on
@@ -992,6 +1001,11 @@ class Api:
                 try:
                     manifest = json.loads(manifest_path.read_text())
                     manifest["key"] = crx_public_key
+                    # A store-sourced extension without its own update_url (e.g.
+                    # AppBlocker) still needs one so Chrome will force-install and
+                    # auto-update it from the Web Store.
+                    if not manifest.get("update_url"):
+                        manifest["update_url"] = WEBSTORE_UPDATE_URL
                     manifest_path.write_text(json.dumps(manifest, indent=2))
                     print(f"[webstore-add] pinned stable key for {ext_id} — same tamper "
                           "monitoring quality as a manually-keyed extension.")
@@ -1004,6 +1018,61 @@ class Api:
                       "worker-sampling fallback instead of the stable-ID path.")
 
             return self._install_extension_from_dir(extract_dir)
+
+    def _ensure_appblocker_webstore(self):
+        """Make the AppBlocker Web Filter in extensions/ the published Chrome
+        Web Store build: stable store ID + update_url, so Chrome force-installs
+        it (greyed-out Remove) and auto-updates it from the store. Best-effort:
+        any problem (offline, store unreachable) leaves the bundled copy in
+        place so blocking still works, just as an unpacked local copy."""
+        try:
+            dest = EXTENSIONS_DIR / "AppBlocker_Web_Filter"
+            # Already the store build (right key + an update_url)? Nothing to do.
+            if dest.exists():
+                try:
+                    m = json.loads((dest / "manifest.json").read_text())
+                    if m.get("update_url") and self._extension_id_for_key(m.get("key", "")) == APPBLOCKER_WEBSTORE_ID:
+                        return
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+            crx_url = (
+                "https://clients2.google.com/service/update2/crx"
+                "?response=redirect&os=win&arch=x86-64&os_arch=x86_64&nacl_arch=x86-64"
+                "&prod=chromecrx&prodchannel=unknown&prodversion=153.0.8010.36&acceptformat=crx2,crx3"
+                f"&x=id%3D{APPBLOCKER_WEBSTORE_ID}%26installsource%3Dondemand%26uc"
+            )
+            req = urllib.request.Request(crx_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = resp.read()
+
+            key = self._extract_crx_public_key(data)
+            if not key or self._extension_id_for_key(key) != APPBLOCKER_WEBSTORE_ID:
+                print("[appblocker] store package didn't verify — keeping the bundled copy.")
+                return
+            zip_start = data.find(b"PK\x03\x04")
+            if zip_start == -1:
+                return
+
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                (tmp_path / "ext.zip").write_bytes(data[zip_start:])
+                extract_dir = tmp_path / "extracted"
+                with zipfile.ZipFile(tmp_path / "ext.zip") as zf:
+                    zf.extractall(extract_dir)
+                mpath = extract_dir / "manifest.json"
+                manifest = json.loads(mpath.read_text())
+                manifest["key"] = key
+                manifest["update_url"] = WEBSTORE_UPDATE_URL
+                mpath.write_text(json.dumps(manifest, indent=2))
+                # Swap it in for the bundled copy.
+                if dest.exists():
+                    shutil.rmtree(dest, ignore_errors=True)
+                shutil.copytree(extract_dir, dest)
+            print("[appblocker] upgraded to the Chrome Web Store build "
+                  "(force-installed + auto-updated from the store).")
+        except Exception as e:  # noqa: BLE001 - best-effort, never block startup
+            print(f"[appblocker] couldn't switch to the Web Store build, keeping bundled copy: {e}")
 
     @staticmethod
     def _extract_webstore_id(text: str):
