@@ -1,0 +1,101 @@
+"""Offline mobile/desktop playlist navigation checks."""
+import threading
+import unittest
+from unittest.mock import patch
+import playlist_navigation as nav
+import plan_runner
+
+
+class Target:
+    @property
+    def first(self):
+        return self
+    def __init__(self, callback=None, visible=True):
+        self.callback = callback
+        self.visible = visible
+    def is_visible(self, timeout=None):
+        return self.visible
+    def is_enabled(self, timeout=None):
+        return True
+    def click(self, timeout=None):
+        if self.callback:
+            self.callback()
+
+
+class FakeVideo:
+    @property
+    def first(self):
+        return self
+    def evaluate(self, js, timeout=None):
+        return "https://media.example/a.mp4"
+
+
+class FakePage:
+    def __init__(self, mobile=False, has_next=True, changes=True):
+        self.url = "https://m.example/watch?v=a&index=1" if mobile else "https://www.example/watch?v=a&index=1"
+        self.has_next = has_next
+        self.changes = changes
+        self.mobile = mobile
+        self.clicks = 0
+    def _click(self):
+        self.clicks += 1
+        if self.changes:
+            self.url = self.url.replace("v=a&index=1", "v=b&index=2")
+    def get_by_role(self, role, name):
+        return Target(self._click, visible=self.has_next and role == "button")
+    def locator(self, css):
+        if css == "video":
+            return FakeVideo()
+        return Target(self._click, visible=False)
+
+
+class NavigationTests(unittest.TestCase):
+    def test_desktop_next_confirmed(self):
+        page = FakePage()
+        success, msg = nav.advance(page, confirmation_seconds=0.1)
+        self.assertTrue(success, msg)
+        self.assertIn("confirmed", msg)
+        self.assertEqual(page.clicks, 1)
+
+    def test_mobile_layout_without_fingerprint_detection(self):
+        page = FakePage(mobile=True)
+        success, _ = nav.advance(page, confirmation_seconds=0.1)
+        self.assertTrue(success)
+        self.assertIn("index=2", page.url)
+
+    def test_missing_next_control_reports_failure(self):
+        page = FakePage(has_next=False)
+        success, message = nav.advance(page, confirmation_seconds=0)
+        self.assertFalse(success)
+        self.assertIn("no visible enabled Next", message)
+
+    def test_click_without_navigation_not_marked_success(self):
+        page = FakePage(changes=False)
+        success, message = nav.advance(page, confirmation_seconds=0)
+        self.assertFalse(success)
+        self.assertIn("no item change", message)
+
+    def test_stopped_does_not_click(self):
+        stop = threading.Event()
+        stop.set()
+        page = FakePage()
+        success, _ = nav.advance(page, stop)
+        self.assertFalse(success)
+        self.assertEqual(page.clicks, 0)
+
+    def test_next_interval_and_end_validation(self):
+        interval, error = plan_runner.clean_actions(
+            [{"type": "next", "at": 2, "mode": "interval", "interval": 15}], 40)
+        self.assertIsNone(error)
+        self.assertEqual(interval[0]["interval"], 15)
+        ended, error = plan_runner.clean_actions(
+            [{"type": "next", "at": 2, "mode": "ended", "interval": 0}], 40)
+        self.assertIsNone(error)
+        self.assertEqual(ended[0]["mode"], "ended")
+        _, error = plan_runner.clean_actions(
+            [{"type": "next", "at": 2, "mode": "interval", "interval": 0}], 40)
+        self.assertIn("repeat interval", error)
+
+
+if __name__ == "__main__":
+    unittest.main()
