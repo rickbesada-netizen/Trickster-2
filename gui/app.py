@@ -36,6 +36,7 @@ import profile_pools
 import bulk_proxy
 import app_api
 import plan_runner
+import fleet_scheduler
 import generate_profiles as generate_profiles_module
 import launcher
 import extension_policy
@@ -172,6 +173,7 @@ class Api:
         self._local_api = app_api.LocalApi(self._runner, self._profile_files, self._api_describe, self.bulk_assign_proxies)
         self._local_api.configure(PROFILES_DIR, launcher.USER_DATA_ROOT)
         self._plan = plan_runner.PlanRunner(self._runner, self._profile_files)
+        self._fleet = fleet_scheduler.FleetController(WRITABLE_DIR / 'fleet_config.json')
         self._api_cfg_path = WRITABLE_DIR / "api_config.json"
         self._api_cfg = app_api.load_config(self._api_cfg_path)
         self._api_server = None
@@ -830,6 +832,45 @@ class Api:
 
     def plan_stop(self):
         return self._plan.stop()
+
+    # --- RAM-aware daily fleet scheduling (separate from Timed Plan) ---
+    def fleet_config_read(self):
+        path = WRITABLE_DIR / "fleet_config.json"
+        if path.exists():
+            return {"ok": True, "text": path.read_text(encoding="utf-8")}
+        sample = {
+            "machine_index": 0,
+            "timezone": "Australia/Melbourne",
+            "operating_hour": 11,
+            "api_url": f"http://127.0.0.1:{self._api_cfg['port']}",
+            "api_token": self._api_cfg["token"],
+            "profile_ids": [],
+            "campaigns": []
+        }
+        return {"ok": True, "text": json.dumps(sample, indent=2),
+                "message": "Enter all 1000 profile IDs and 10 campaigns with 100 clips each."}
+
+    def fleet_config_save(self, raw):
+        try:
+            config = json.loads(raw)
+            if not isinstance(config, dict):
+                raise ValueError("Configuration must be a JSON object")
+            if not 0 <= int(config.get("machine_index", -1)) <= 12:
+                raise ValueError("machine_index must be 0 through 12")
+            path = WRITABLE_DIR / "fleet_config.json"
+            path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            return {"ok": True, "message": "Saved fleet_config.json"}
+        except (ValueError, TypeError, OSError) as e:
+            return {"ok": False, "message": str(e)}
+
+    def fleet_start(self):
+        return self._fleet.start()
+
+    def fleet_status(self):
+        return self._fleet.status()
+
+    def fleet_stop(self):
+        return self._fleet.stop()
 
     def open_profiles_folder(self):
         PROFILES_DIR.mkdir(parents=True, exist_ok=True)
