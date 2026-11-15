@@ -334,6 +334,48 @@ class Api:
             print(f"[update] skipped: {e}", flush=True)
         return {"updating": False}
 
+    def update_check_now(self):
+        """Visible manual update check, with actual build and error details."""
+        current = updater.local_build(RESOURCE_DIR)
+        installed = (getattr(sys, "frozen", False)
+                     and Path(sys.executable).resolve() ==
+                     Path(updater.installed_exe_path()).resolve())
+        if not installed:
+            return {"ok": True, "installed": False, "available": False,
+                    "current": current, "latest": 0,
+                    "message": "This appears to be a portable or source launch. The in-app installer updater only runs from the installed Trickster shortcut."}
+        try:
+            result = updater.check(RESOURCE_DIR, ignore_cooldown=True)
+            latest = result.get("build", 0)
+            message = (f"Build {latest} is available. You have build {current}."
+                       if result.get("available") else
+                       (result.get("reason") or f"Build {current} is up to date."))
+            return {"ok": True, "installed": True, "available": result["available"],
+                    "current": current, "latest": latest, "message": message}
+        except Exception as exc:
+            return {"ok": False, "installed": True, "available": False,
+                    "current": current, "latest": 0,
+                    "message": f"Update check failed: {exc}"}
+
+    def update_install_now(self):
+        """Only an explicit user click initiates a manual in-app update."""
+        info = self.update_check_now()
+        if not info.get("ok") or not info.get("installed"):
+            return info
+        if not info.get("available"):
+            return {**info, "message": "No newer build is available."}
+        try:
+            result = updater.check(RESOURCE_DIR, ignore_cooldown=True)
+            if not result.get("available"):
+                return {"ok": False, "message": "The release changed; check again."}
+            updater.install(result["url"], updater.installed_exe_path(),
+                            log=lambda m: print(m, flush=True))
+            return {"ok": True, "updating": True,
+                    "message": "Update downloaded. Trickster will close and relaunch."}
+        except Exception as exc:
+            return {"ok": False, "updating": False,
+                    "message": f"Update failed: {exc}"}
+
     def ensure_chromium(self):
         """Called once by the frontend before anything else loads (see
         script.js's pywebviewready handler) — makes sure Chromium is
