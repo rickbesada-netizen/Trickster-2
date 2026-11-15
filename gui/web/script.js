@@ -392,7 +392,13 @@ function addActionLine(box, vals = {}) {
     line.querySelector('[data-a=interval]').value = vals.interval ?? 180;
   }
   line.querySelector('[data-a=next-mode]').addEventListener('change', sync);
-  line.querySelector('[data-a=type]').addEventListener('change', sync);
+  line.querySelector('[data-a=type]').addEventListener('change', () => {
+    if (line.querySelector('[data-a=type]').value === 'next'
+        && Number(line.querySelector('[data-a=interval]').value) === 0) {
+      line.querySelector('[data-a=interval]').value = 180;
+    }
+    sync();
+  });
   line.querySelector('.plan-x').addEventListener('click', () => { line.remove(); refreshActCount(box); savePlan(); });
   sync();
   box.querySelector('.act-list').appendChild(line);
