@@ -84,20 +84,126 @@ def check(resource_dir, ignore_cooldown=False):
     return response
 
 
+def update_helper_script():
+    """PowerShell helper runs OUTSIDE Trickster and waits for its EXE to exit.
+
+    Do not run Inno Setup in the current process: Windows keeps Trickster.exe
+    locked until the last process handle closes. Never forcibly terminate
+    unrelated processes or overwrite an EXE still in use.
+    """
+    return r'''
+param(
+  [Parameter(Mandatory=$true)][int]$ParentPid,
+  [Parameter(Mandatory=$true)][string]$SetupPath,
+  [Parameter(Mandatory=$true)][string]$InstalledExe,
+  [Parameter(Mandatory=$true)][string]$LogPath
+)
+$ErrorActionPreference = 'Stop'
+function Write-UpdateLog($message) {
+  Add-Content -LiteralPath $LogPath -Value "[$(Get-Date -Format o)] $message"
+}
+try {
+  Write-UpdateLog "Waiting for Trickster PID $ParentPid to exit"
+  try {
+    Wait-Process -Id $ParentPid -Timeout 120 -ErrorAction Stop
+  } catch {
+    if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
+      throw "Trickster did not exit within 120 seconds; update cancelled"
+    }
+  }
+  # If a second Trickster instance is running, do not race the installer
+  # against it or forcibly close it. Ask the user to close it and retry.
+  $target = [IO.Path]::GetFullPath($InstalledExe)
+  $other = Get-CimInstance Win32_Process -Filter "name = 'Trickster.exe'" |
+    Where-Object { $_.ExecutablePath -and
+      [string]::Equals([IO.Path]::GetFullPath($_.ExecutablePath), $target,
+        [StringComparison]::OrdinalIgnoreCase) }
+  if ($other) {
+    throw "Another Trickster process is running; close it and retry the update"
+  }
+  Write-UpdateLog "Trickster exited; starting silent setup"
+  $process = Start-Process -FilePath $SetupPath -ArgumentList @(
+    '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
+    '/NOCLOSEAPPLICATIONS'
+  ) -PassThru -Wait
+  Write-UpdateLog "Setup exited with code $($process.ExitCode)"
+  if ($process.ExitCode -ne 0) {
+    throw "Installer exited with code $($process.ExitCode)"
+  }
+  if (-not (Test-Path -LiteralPath $InstalledExe)) {
+    throw "Updated application executable is missing"
+  }
+  Write-UpdateLog "Update installed successfully; restarting Trickster"
+  Start-Process -FilePath $InstalledExe
+  Remove-Item -LiteralPath $SetupPath -Force -ErrorAction SilentlyContinue
+} catch {
+  Write-UpdateLog "UPDATE FAILED: $($_.Exception.Message)"
+}
+'''
+
+
 def install(url, installed_exe, log=print):
-    """Downloads the installer and runs it silently; Trickster reopens afterwards."""
+    """Download setup, start a detached wait-for-exit helper, then exit app.
+
+    Inno Setup starts only AFTER the current process is gone, preventing the
+    'unable to automatically close all applications' update error.
+    """
+    if sys.platform != "win32":
+        raise RuntimeError("In-app installation is supported only on Windows")
+    installed_path = Path(installed_exe).resolve()
+    if Path(sys.executable).resolve() != installed_path:
+        raise RuntimeError("Please launch installed Trickster from its desktop shortcut")
     fd, path = tempfile.mkstemp(suffix=".exe", prefix="TricksterSetup_")
     os.close(fd)
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Trickster"}), timeout=60) as r, open(path, "wb") as out:
-        shutil.copyfileobj(r, out)
-    log(f"[update] downloaded {path}")
-    _mark_attempt()
-    # Run the installer directly (no cmd wrapper - its quote handling garbled the
-    # command). The installer reopens Trickster itself when it finishes.
-    subprocess.Popen([path, "/SILENT", "/CLOSEAPPLICATIONS", "/NORESTART"],
-                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    threading.Timer(1.0, os._exit, [0]).start()
+    helper = None
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(url, headers={"User-Agent": "Trickster"}), timeout=60
+        ) as response, open(path, "wb") as out:
+            shutil.copyfileobj(response, out)
+        with open(path, "rb") as downloaded:
+            if downloaded.read(2) != b"MZ":
+                raise RuntimeError("Downloaded installer is not a Windows executable")
+        helper_fd, helper = tempfile.mkstemp(suffix=".ps1", prefix="TricksterUpdateWait_")
+        with os.fdopen(helper_fd, "w", encoding="utf-8-sig") as output:
+            output.write(update_helper_script())
+        log_path = str(Path(tempfile.gettempdir()) / "trickster_update.log")
+        # Detached helper must not inherit Trickster's file handles. It waits
+        # for THIS PID to exit before touching Trickster.exe.
+        subprocess.Popen(
+            [
+                "powershell.exe", "-NoProfile", "-NonInteractive",
+                "-ExecutionPolicy", "Bypass", "-File", helper,
+                "-ParentPid", str(os.getpid()),
+                "-SetupPath", path,
+                "-InstalledExe", str(installed_path),
+                "-LogPath", log_path
+            ],
+            creationflags=(
+                getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            ),
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log("[update] installer downloaded; helper will wait for Trickster to exit")
+        _mark_attempt()
+        # Allow the JS API response to return before shutting down the host.
+        threading.Timer(1.0, os._exit, [0]).start()
+    except Exception:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        if helper:
+            try:
+                os.unlink(helper)
+            except OSError:
+                pass
+        raise
 
 
 def installed_exe_path():
