@@ -17,6 +17,8 @@ jobs:
         run: |
           python -m py_compile plan_runner.py playlist_navigation.py
           node --check gui/web/script.js
+      - name: Verify mobile playlist DOM fallback
+        run: node tests/test_mobile_playlist_dom.js
       - name: Verify playlist Next actions
         run: python -m unittest discover -s tests -p "test_playlist_navigation.py" -v
       - name: Verify existing timed click actions
