@@ -342,20 +342,29 @@ function addActionLine(box, vals = {}) {
     <span>At</span>
     <input type="number" data-a="at" min="0" placeholder="10" class="act-sec" />
     <span>seconds</span>
-    <select data-a="type"><option value="key">press a key</option><option value="text">type text</option></select>
+    <select data-a="type"><option value="key">press a key</option><option value="text">type text</option><option value="click">click element</option></select>
     <select data-a="key">${keyOpts}<option value="__custom__">Custom shortcut...</option></select>
     <input type="text" data-a="shortcut" class="act-text" placeholder="e.g. Ctrl+Shift+N" maxlength="40" title="Type a browser shortcut such as Shift+N or Ctrl+ArrowRight" hidden />
     <input type="number" data-a="repeat" min="1" max="50" value="1" class="act-rep" title="How many times" />
     <span data-a="times" title="times">times</span>
     <input type="text" data-a="text" maxlength="300" placeholder="text to type" class="act-text" />
+    <input type="text" data-a="selector" maxlength="250" placeholder="CSS selector, e.g. button.next" class="act-text" title="Button CSS selector on your website" hidden />
+    <span data-a="repeat-label" hidden>Repeat every</span>
+    <input type="number" data-a="interval" min="0" max="3600" step="1" value="0" class="act-sec" title="Seconds between automatic clicks (0 = once)" hidden />
+    <span data-a="interval-unit" hidden>seconds (0 = once)</span>
     <button class="plan-x" title="Remove this action">&times;</button>`;
   const sync = () => {
-    const isKey = line.querySelector('[data-a=type]').value === 'key';
+    const type = line.querySelector('[data-a=type]').value;
+    const isKey = type === 'key', isClick = type === 'click';
     line.querySelector('[data-a=key]').hidden = !isKey;
     line.querySelector('[data-a=shortcut]').hidden = !isKey || line.querySelector('[data-a=key]').value !== '__custom__';
     line.querySelector('[data-a=repeat]').hidden = !isKey;
     line.querySelector('[data-a=times]').hidden = !isKey;
-    line.querySelector('[data-a=text]').hidden = isKey;
+    line.querySelector('[data-a=text]').hidden = type !== 'text';
+    line.querySelector('[data-a=selector]').hidden = !isClick;
+    line.querySelector('[data-a=interval]').hidden = !isClick;
+    line.querySelector('[data-a=repeat-label]').hidden = !isClick;
+    line.querySelector('[data-a=interval-unit]').hidden = !isClick;
   };
   line.querySelector('[data-a=at]').value = vals.at ?? '';
   line.querySelector('[data-a=type]').value = vals.type || 'key';
@@ -371,6 +380,10 @@ function addActionLine(box, vals = {}) {
   line.querySelector('[data-a=key]').addEventListener('change', sync);
   line.querySelector('[data-a=repeat]').value = vals.repeat || 1;
   if (vals.type === 'text') line.querySelector('[data-a=text]').value = vals.value || '';
+  if (vals.type === 'click') {
+    line.querySelector('[data-a=selector]').value = vals.value || '';
+    line.querySelector('[data-a=interval]').value = vals.interval ?? 0;
+  }
   line.querySelector('[data-a=type]').addEventListener('change', sync);
   line.querySelector('.plan-x').addEventListener('click', () => { line.remove(); refreshActCount(box); savePlan(); });
   sync();
@@ -388,8 +401,9 @@ function readActions(box) {
         ? (l.querySelector('[data-a=key]').value === '__custom__'
             ? l.querySelector('[data-a=shortcut]').value.trim()
             : l.querySelector('[data-a=key]').value)
-        : l.querySelector('[data-a=text]').value,
+        : (type === 'click' ? l.querySelector('[data-a=selector]').value.trim() : l.querySelector('[data-a=text]').value),
       repeat: type === 'key' ? l.querySelector('[data-a=repeat]').value : 1,
+      interval: type === 'click' ? l.querySelector('[data-a=interval]').value : 0,
     };
   });
 }
@@ -408,7 +422,7 @@ function addPlanRow(vals = {}) {
     <td><input type="text" data-f="url" placeholder="e.g. example.com" /></td>
     <td><input type="number" data-f="seconds" min="5" placeholder="30" /></td>
     <td><input type="checkbox" data-f="scroll" title="Scroll the page down during this time" /></td>
-    <td><button class="btn btn-ghost btn-small act-btn" title="Press keys or type text at set seconds">Actions</button></td>
+    <td><button class="btn btn-ghost btn-small act-btn" title="Press keys, type text, or click buttons automatically">Actions</button></td>
     <td><button class="plan-x" title="Remove this step">&times;</button></td>`;
   tr.querySelector('[data-f=no]').value = vals.no || '';
   tr.querySelector('[data-f=url]').value = vals.url || '';
@@ -419,7 +433,7 @@ function addPlanRow(vals = {}) {
   sub.className = 'act-row';
   sub.hidden = true;
   sub.innerHTML = `<td colspan="6"><div class="act-box">
-      <div class="act-help">Happens automatically while this page is open. Seconds count from when the page finished loading.</div>
+      <div class="act-help">Happens automatically while this page is open. For Click element, enter the website's button CSS selector and set Repeat every to advance the playlist without keyboard input.</div>
       <div class="act-list"></div>
       <button class="btn btn-ghost btn-small act-add">+ Add action</button></div></td>`;
   const box = sub.querySelector('.act-box');

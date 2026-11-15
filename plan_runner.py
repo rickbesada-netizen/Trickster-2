@@ -104,6 +104,9 @@ def normalise_shortcut(raw: str) -> Optional[str]:
 MAX_ACTIONS_PER_PAGE = 30
 MAX_TEXT_LENGTH = 300
 MAX_KEY_REPEAT = 50
+MAX_CLICK_SELECTOR_LENGTH = 250
+MIN_REPEAT_INTERVAL = 2
+MAX_REPEAT_INTERVAL = 3600
 
 
 def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
@@ -112,8 +115,8 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
     for n, a in enumerate(raw or [], 1):
         a = a or {}
         kind = a.get("type")
-        if kind not in ("key", "text"):
-            return [], f"action {n}: pick 'Press a key' or 'Type text'"
+        if kind not in ("key", "text", "click"):
+            return [], f"action {n}: pick 'Press a key', 'Type text', or 'Click element'"
         try:
             at = float(str(a.get("at", "")).strip())
         except ValueError:
@@ -132,6 +135,19 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
             if repeat < 1 or repeat > MAX_KEY_REPEAT:
                 return [], f"action {n}: repeat must be 1 to {MAX_KEY_REPEAT}"
             out.append({"at": at, "type": "key", "value": key, "repeat": repeat})
+        elif kind == "click":
+            selector = str(a.get("value") or "").strip()
+            if (not selector or len(selector) > MAX_CLICK_SELECTOR_LENGTH
+                    or any(c in selector for c in "\r\n\x00")):
+                return [], f"action {n}: enter a CSS selector (1-{MAX_CLICK_SELECTOR_LENGTH} characters)"
+            interval_raw = a.get("interval", 0)
+            try:
+                interval = float(interval_raw or 0)
+            except (ValueError, TypeError):
+                return [], f"action {n}: repeat interval must be a number"
+            if interval and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
+                return [], f"action {n}: repeat interval must be {MIN_REPEAT_INTERVAL}-{MAX_REPEAT_INTERVAL} seconds"
+            out.append({"at": at, "type": "click", "value": selector, "interval": interval})
         else:
             text = str(a.get("value") or "")
             if not text or len(text) > MAX_TEXT_LENGTH or "\n" in text or "\r" in text:
@@ -241,10 +257,16 @@ def _do_action(page, action: dict):
                 page.keyboard.press(action["value"])
                 if action["repeat"] > 1:
                     page.wait_for_timeout(300)
+        elif action["type"] == "click":
+            # A real element click is more reliable than a keyboard shortcut on mobile
+            # pages. Resolve the locator afresh each time after navigation.
+            page.locator(action["value"]).first.click(timeout=2500)
         else:
             page.keyboard.type(action["value"], delay=60)  # fixed pace, same every time
-    except Exception:
-        pass  # a key press during a navigation etc. - skip it rather than abort the page
+    except Exception as exc:
+        # An element may disappear while its page navigates; report the issue
+        # in the app log without breaking the rest of the Timed Plan.
+        print(f"[timed-plan] {action['type']} action skipped: {exc}", flush=True)
 
 
 def page_script(seconds: float, scroll: bool, actions: List[dict]):
@@ -263,7 +285,19 @@ def page_script(seconds: float, scroll: bool, actions: List[dict]):
             if now >= end or (stop_event is not None and stop_event.is_set()):
                 return
             while i < len(todo) and todo[i]["at"] <= now - start:
-                _do_action(page, todo[i])
+                action = todo[i]
+                _do_action(page, action)
+                interval = action.get("interval", 0) if action["type"] == "click" else 0
+                if interval:
+                    # Reschedule in this same browser session until the step ends.
+                    # Skip missed ticks rather than issuing a burst of clicks.
+                    next_at = action["at"] + interval
+                    elapsed = time.time() - start
+                    if next_at <= elapsed:
+                        next_at += (int((elapsed - next_at) // interval) + 1) * interval
+                    if next_at < seconds:
+                        todo.append({**action, "at": next_at})
+                        todo[i + 1:] = sorted(todo[i + 1:], key=lambda a: a["at"])
                 i += 1
             if scroll:
                 try:
