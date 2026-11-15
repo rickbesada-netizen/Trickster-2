@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
 import bulk_proxy
+import playlist_navigation
 
 MIN_SECONDS = 5
 MAX_SECONDS = 4 * 3600
@@ -115,8 +116,8 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
     for n, a in enumerate(raw or [], 1):
         a = a or {}
         kind = a.get("type")
-        if kind not in ("key", "text", "click"):
-            return [], f"action {n}: pick 'Press a key', 'Type text', or 'Click element'"
+        if kind not in ("key", "text", "click", "next"):
+            return [], f"action {n}: pick 'Press a key', 'Type text', 'Click element', or 'Next playlist item'"
         try:
             at = float(str(a.get("at", "")).strip())
         except ValueError:
@@ -135,6 +136,18 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
             if repeat < 1 or repeat > MAX_KEY_REPEAT:
                 return [], f"action {n}: repeat must be 1 to {MAX_KEY_REPEAT}"
             out.append({"at": at, "type": "key", "value": key, "repeat": repeat})
+        elif kind == "next":
+            mode = str(a.get("mode") or "interval")
+            if mode not in ("interval", "ended"):
+                return [], f"action {n}: Next mode must be an interval or video end"
+            try:
+                interval = float(a.get("interval") or 0)
+            except (TypeError, ValueError):
+                return [], f"action {n}: repeat interval must be a number"
+            if mode == "interval" and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
+                return [], f"action {n}: repeat interval must be {MIN_REPEAT_INTERVAL}-{MAX_REPEAT_INTERVAL} seconds"
+            out.append({"at": at, "type": "next", "mode": mode,
+                        "interval": interval if mode == "interval" else 0})
         elif kind == "click":
             selector = str(a.get("value") or "").strip()
             if (not selector or len(selector) > MAX_CLICK_SELECTOR_LENGTH
@@ -269,7 +282,7 @@ def _do_action(page, action: dict):
         print(f"[timed-plan] {action['type']} action skipped: {exc}", flush=True)
 
 
-def page_script(seconds: float, scroll: bool, actions: List[dict]):
+def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
     """Runs one page's whole time on the browser thread: optional steady
     scroll toward the bottom (re-measured each tick so growing pages work),
     plus the scheduled key presses / typing, each fired at its exact second."""
@@ -280,14 +293,26 @@ def page_script(seconds: float, scroll: bool, actions: List[dict]):
         end = start + seconds
         tick = 0.2
         i = 0
+        last_ended_probe = 0
+        ended_armed = True
         while True:
             now = time.time()
             if now >= end or (stop_event is not None and stop_event.is_set()):
                 return
             while i < len(todo) and todo[i]["at"] <= now - start:
                 action = todo[i]
-                _do_action(page, action)
-                interval = action.get("interval", 0) if action["type"] == "click" else 0
+                if action["type"] == "next":
+                    if action["mode"] == "interval":
+                        ok, message = playlist_navigation.advance(page, stop_event)
+                        if report:
+                            report(message)
+                    else:
+                        # End-of-video actions are polled below, not fired at the
+                        # trigger second.
+                        pass
+                else:
+                    _do_action(page, action)
+                interval = action.get("interval", 0) if action["type"] in ("click", "next") and action.get("mode", "interval") == "interval" else 0
                 if interval:
                     # Reschedule in this same browser session until the step ends.
                     # Skip missed ticks rather than issuing a burst of clicks.
@@ -299,6 +324,21 @@ def page_script(seconds: float, scroll: bool, actions: List[dict]):
                         todo.append({**action, "at": next_at})
                         todo[i + 1:] = sorted(todo[i + 1:], key=lambda a: a["at"])
                 i += 1
+            if now - last_ended_probe >= 0.8:
+                last_ended_probe = now
+                for action in actions or []:
+                    if action.get("type") != "next" or action.get("mode") != "ended" or now - start < action["at"]:
+                        continue
+                    status = playlist_navigation.video_ended(page)
+                    if status is None or not status.get("ready"):
+                        continue
+                    if not status.get("ended"):
+                        ended_armed = True
+                    elif ended_armed:
+                        ended_armed = False
+                        ok, message = playlist_navigation.advance(page, stop_event)
+                        if report:
+                            report(message)
             if scroll:
                 try:
                     remaining = page.evaluate(
@@ -497,7 +537,9 @@ class PlanRunner:
                         notes.append(f"couldn't load {page_def['url']}")
                 self._set(it, state="running")
                 if page_def["scroll"] or page_def["actions"]:
-                    self._runner.submit(pid, page_script(page_def["seconds"], page_def["scroll"], page_def["actions"]))
+                    self._runner.submit(pid, page_script(
+                        page_def["seconds"], page_def["scroll"], page_def["actions"],
+                        report=lambda message: self._set(it, note=message)))
                 outcome = self._wait_page(it, pid, page_def, None)
                 if outcome == "stopped":
                     self._set(it, state="stopped")
@@ -508,7 +550,7 @@ class PlanRunner:
 
             self._set(it, state="closing", left=0)
             self._runner.close_many([pid], wait=25.0)
-            self._set(it, state="done", note="; ".join(notes))
+            self._set(it, state="done", note="; ".join(notes + ([it.get("note")] if it.get("note") else [])))
         finally:
             if pid and self._stop.is_set():
                 self._runner.close_many([pid], wait=25.0)
