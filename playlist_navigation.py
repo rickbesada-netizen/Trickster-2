@@ -18,6 +18,8 @@ NEXT_SELECTORS = (
     "button[title='Next']",
     "[data-testid='next-button']",
     "[data-action='next']",
+    ".player-controls-middle-core-buttons button[aria-label*='Next']",
+    "button[class*='next-button']",
 )
 
 
@@ -65,6 +67,67 @@ def find_next(page):
     return None, None
 
 
+
+# Mobile player controls are often hidden while playlist entries stay visible.
+# Match the current watch URL to a row in the actual playlist panel, and
+# choose its immediately following row, not a recommendation.
+PLAYLIST_NEXT_JS = r"""
+() => {
+  const previous = document.querySelector('[data-trickster-next-target="1"]');
+  if (previous) previous.removeAttribute('data-trickster-next-target');
+  const current = new URL(location.href);
+  const playlistId = current.searchParams.get('list');
+  const videoId = current.searchParams.get('v');
+  if (!playlistId || !videoId) return {found: false, why: 'not a playlist video'};
+  const roots = [...document.querySelectorAll(
+    'ytm-playlist-panel-renderer, ytm-playlist-video-list-renderer, ' +
+    'ytd-playlist-panel-renderer, ytm-playlist-panel, ' +
+    '[class*="playlist-panel"], [id*="playlist-panel"]'
+  )];
+  let best = null;
+  for (const root of roots) {
+    const entries = [...root.querySelectorAll('a[href]')].filter(a => {
+      try {
+        const u = new URL(a.href, location.href);
+        return (u.pathname.endsWith('/watch') &&
+                u.searchParams.get('list') === playlistId &&
+                u.searchParams.has('v'));
+      } catch (_) { return false; }
+    });
+    if (!entries.length) continue;
+    const unique = [];
+    const seen = new Set();
+    for (const a of entries) {
+      const v = new URL(a.href, location.href).searchParams.get('v');
+      if (!seen.has(v)) { unique.push(a); seen.add(v); }
+    }
+    const at = unique.findIndex(a =>
+      new URL(a.href, location.href).searchParams.get('v') === videoId);
+    if (at < 0 || at + 1 >= unique.length) continue;
+    if (!best || unique.length > best.count) {
+      best = {element: unique[at + 1], count: unique.length};
+    }
+  }
+  if (!best) return {found: false, why: 'next playlist link not in current panel'};
+  best.element.setAttribute('data-trickster-next-target', '1');
+  return {found: true, count: best.count};
+}
+"""
+
+
+def find_playlist_link(page):
+    """Return the next visible playlist entry; no URL synthesis or direct goto."""
+    try:
+        outcome = page.evaluate(PLAYLIST_NEXT_JS)
+        if outcome and outcome.get("found"):
+            target = page.locator('[data-trickster-next-target="1"]').first
+            if target.is_visible(timeout=500) and target.is_enabled(timeout=500):
+                return target, "next item in playlist panel"
+    except Exception:
+        pass
+    return None, None
+
+
 def video_ended(page):
     """Return None if there is no available video element."""
     try:
@@ -82,7 +145,17 @@ def advance(page, stop_event=None, confirmation_seconds=4):
     before = media_identity(page)
     target, source = find_next(page)
     if target is None:
-        return False, "Playlist next: no visible enabled Next control found (mobile/desktop layout)"
+        target, source = find_playlist_link(page)
+    if target is None:
+        # Hover may reveal controls on Chromium even with a mobile fingerprint.
+        try:
+            page.locator("video").first.hover(timeout=900)
+            target, source = find_next(page)
+        except Exception:
+            pass
+    if target is None:
+        return False, ("Playlist next: no usable Next control or next playlist row "
+                       "found. This mobile layout may need a site-specific selector.")
     try:
         target.click(timeout=2500)
     except Exception as error:
