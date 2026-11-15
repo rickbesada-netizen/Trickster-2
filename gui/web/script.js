@@ -1252,3 +1252,57 @@ document.getElementById('ext-add-webstore').addEventListener('click', async () =
     await loadExtensions();
   }
 });
+
+
+// --- Daily 13-machine fleet scheduling ---
+const fleetModal = document.getElementById('fleet-modal');
+let fleetTimer = null;
+async function pollFleetStatus() {
+  try {
+    const st = await window.pywebview.api.fleet_status();
+    document.getElementById('fleet-status').textContent =
+      'Active: ' + !!st.active + ' | machine: ' + st.machine +
+      ' | pass: ' + (st.pass_number || 0) + '/4' +
+      ' | running: ' + st.running + ' | clips completed: ' + st.completed +
+      ' | failed batches: ' + st.failed +
+      (st.last_error ? ' | last error: ' + st.last_error : '');
+  } catch (e) {
+    document.getElementById('fleet-status').textContent = String(e);
+  }
+}
+document.getElementById('nav-fleet').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const res = await window.pywebview.api.fleet_config_read();
+  document.getElementById('fleet-json').value = res.text || '';
+  document.getElementById('fleet-message').textContent = res.message || '';
+  fleetModal.hidden = false;
+  await pollFleetStatus();
+  if (fleetTimer) clearInterval(fleetTimer);
+  fleetTimer = setInterval(pollFleetStatus, 1500);
+});
+document.getElementById('fleet-close').addEventListener('click', () => {
+  fleetModal.hidden = true;
+  if (fleetTimer) clearInterval(fleetTimer);
+  fleetTimer = null;
+});
+document.getElementById('fleet-save').addEventListener('click', async () => {
+  const res = await window.pywebview.api.fleet_config_save(
+    document.getElementById('fleet-json').value);
+  document.getElementById('fleet-message').textContent = res.message || JSON.stringify(res);
+});
+document.getElementById('fleet-start').addEventListener('click', async () => {
+  const saved = await window.pywebview.api.fleet_config_save(
+    document.getElementById('fleet-json').value);
+  if (!saved.ok) {
+    document.getElementById('fleet-message').textContent = saved.message;
+    return;
+  }
+  const res = await window.pywebview.api.fleet_start();
+  document.getElementById('fleet-message').textContent = res.message || JSON.stringify(res);
+  await pollFleetStatus();
+});
+document.getElementById('fleet-stop').addEventListener('click', async () => {
+  const res = await window.pywebview.api.fleet_stop();
+  document.getElementById('fleet-message').textContent = res.message || JSON.stringify(res);
+  await pollFleetStatus();
+});
