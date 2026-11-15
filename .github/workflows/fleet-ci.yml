@@ -1,0 +1,20 @@
+name: Fleet scheduler checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/fleet-execution-1000]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile scheduler and desktop bridge
+        run: python -m py_compile fleet_scheduler.py gui/app.py tests/test_fleet_scheduler.py
+      - name: Check GUI JavaScript syntax
+        run: node --check gui/web/script.js
+      - name: Test allocation and selections
+        run: python -m unittest discover -s tests -p "test_fleet_scheduler.py" -v
