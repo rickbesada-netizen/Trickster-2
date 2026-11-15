@@ -70,7 +70,7 @@ def check(resource_dir, ignore_cooldown=False):
         response["cooldown"] = True
         return response
     rel = _json(API)
-    m = re.search(r"Build\\s+(\\d+)", rel.get("body") or "")
+    m = re.search(r"Build\s+(\d+)", rel.get("body") or "")
     theirs = int(m.group(1)) if m else 0
     url = next((asset.get("browser_download_url") for asset in rel.get("assets", [])
                 if asset.get("name") == "TricksterSetup.exe"
