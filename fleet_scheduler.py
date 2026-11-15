@@ -152,7 +152,8 @@ class FleetController:
 
     def _run(self, config, profiles, cap):
         try:
-            self._execute(config, profiles, cap)
+            while not self.stop_event.is_set():
+                self._execute(config, profiles, cap)
         except Exception as exc:
             self._set(last_error=f"{type(exc).__name__}: {exc}")
         finally:
@@ -204,7 +205,7 @@ class FleetController:
                         f.result()
                     except Exception as exc:
                         self._set(last_error=str(exc))
-        self.stop_event.set()
+        self.stop_event.wait(max(0, (deadline - dt.datetime.now(tz)).total_seconds()))
 
     def _visit_batch(self, pid, clips, config, day, progress, ledger,
                      byte_usage, bandwidth, cutoff):
@@ -223,7 +224,8 @@ class FleetController:
             ACTIVE_PROFILES.add(pid)
         client = LocalApiClient(config.get("api_url", "http://127.0.0.1:53200"),
                                 config.get("api_token", ""))
-        self._set(running=self.status()["running"] + 1)
+        with self.lock:
+            self.state["running"] += 1
         opened = False
         browser = None
         try:
@@ -232,7 +234,7 @@ class FleetController:
             ws = response.get("ws")
             debug = response.get("debugging_address")
             if not ws and debug:
-                ws = "http://" + debug.lstrip("http://")
+                ws = debug if debug.startswith(("http://", "https://", "ws://", "wss://")) else "http://" + debug
             if not ws:
                 raise RuntimeError(f"Profile {pid}: API did not return CDP connection details")
             from patchright.sync_api import sync_playwright
@@ -256,7 +258,7 @@ class FleetController:
                     href = clip.get("href")
                     if not href:
                         raise ValueError("Each clip requires its href on the creator page")
-                    locator = page.locator(selector).filter(has=page.locator(f"[href='{href}']"))
+                    # Find the creator page's link; never navigate directly to clip URL.
                     try:
                         link = page.locator(f"a[href='{href}']").first
                         link.click(timeout=15000)
@@ -278,6 +280,10 @@ class FleetController:
                         clip_seconds = float(page.locator("video").first.evaluate("(v) => v.duration", timeout=4000))
                     if not (1 <= clip_seconds <= 600):
                         raise ValueError("Invalid clip duration")
+                    try:
+                        page.locator("video").first.evaluate("(v) => v.play().catch(() => {})", timeout=3000)
+                    except Exception:
+                        pass
                     dwell = clip_seconds * random.uniform(0.60, 1.15)
                     while dwell > 0 and not self.stop_event.is_set() and time.monotonic() < cutoff:
                         tick = min(dwell, 0.5)
