@@ -17,7 +17,7 @@ function scenario({current = 'alone', names = ['too-late', 'hardest'], position 
       querySelector: () => null
     };
     const row = {
-      anchor, matches: () => false, querySelector: () => anchor,
+      anchor, matches: () => false, querySelector: query => query.startsWith('a[') ? anchor : null,
       getAttribute: key => key === 'data-index' && index ? String(index[i]) : null
     };
     return row;
