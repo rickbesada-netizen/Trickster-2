@@ -57,16 +57,31 @@ def _recently_tried(minutes=30):
         return False
 
 
-def check(resource_dir):
-    """Returns {"available": bool, "build": int, "url": str|None}."""
+def check(resource_dir, ignore_cooldown=False):
+    """Compare installed build to GitHub release and explain skipped checks."""
     mine = local_build(resource_dir)
-    if mine <= 0 or _recently_tried():  # never retry in a loop
-        return {"available": False, "build": 0, "url": None}
+    response = {"available": False, "build": 0, "current": mine, "url": None,
+                "reason": "", "cooldown": False}
+    if mine <= 0:
+        response["reason"] = "This application has no bundled build number. Use the official installed Trickster version."
+        return response
+    if _recently_tried() and not ignore_cooldown:
+        response["reason"] = "A recent update attempt triggered a 30-minute retry cooldown."
+        response["cooldown"] = True
+        return response
     rel = _json(API)
     m = re.search(r"Build\s+(\d+)", rel.get("body") or "")
     theirs = int(m.group(1)) if m else 0
-    url = next((a["browser_download_url"] for a in rel.get("assets", []) if a["name"] == "TricksterSetup.exe"), None)
-    return {"available": bool(url and theirs > mine), "build": theirs, "url": url}
+    url = next((asset.get("browser_download_url") for asset in rel.get("assets", [])
+                if asset.get("name") == "TricksterSetup.exe"
+                and str(asset.get("browser_download_url", "")).startswith(
+                    "https://github.com/" + REPO + "/releases/download/latest/")), None)
+    response.update(build=theirs, available=bool(url and theirs > mine), url=url)
+    if not url or not theirs:
+        response["reason"] = "Could not identify the expected installer or build number in the release."
+    elif theirs <= mine:
+        response["reason"] = "You are running the latest published build."
+    return response
 
 
 def install(url, installed_exe, log=print):

@@ -1352,3 +1352,42 @@ document.getElementById('fleet-stop').addEventListener('click', async () => {
   document.getElementById('fleet-message').textContent = res.message || JSON.stringify(res);
   await pollFleetStatus();
 });
+
+
+// --- Visible GitHub update checks ---
+const updateModal = document.getElementById('update-modal');
+const updateStatusText = document.getElementById('update-status-text');
+const updateInstall = document.getElementById('update-install');
+async function checkTricksterUpdate() {
+  updateStatusText.textContent = 'Checking the official GitHub release...';
+  updateInstall.hidden = true;
+  try {
+    const res = await window.pywebview.api.update_check_now();
+    updateStatusText.textContent =
+      (res.current ? 'Installed build: ' + res.current + '. ' : '') +
+      (res.latest ? 'Latest release: ' + res.latest + '. ' : '') + (res.message || '');
+    updateInstall.hidden = !res.available || !res.installed;
+  } catch (e) {
+    updateStatusText.textContent = 'Could not check for updates: ' + e;
+  }
+}
+document.getElementById('nav-updates').addEventListener('click', async e => {
+  e.preventDefault();
+  updateModal.hidden = false;
+  await checkTricksterUpdate();
+});
+document.getElementById('update-close').addEventListener('click', () => { updateModal.hidden = true; });
+document.getElementById('update-check').addEventListener('click', checkTricksterUpdate);
+updateInstall.addEventListener('click', async () => {
+  if (!confirm('Install the latest Trickster update? Close any active browser profiles first.')) return;
+  updateInstall.disabled = true;
+  updateStatusText.textContent = 'Downloading the latest setup file...';
+  try {
+    const res = await window.pywebview.api.update_install_now();
+    updateStatusText.textContent = res.message || 'Update requested.';
+  } catch (e) {
+    updateStatusText.textContent = 'Update failed: ' + e;
+  } finally {
+    updateInstall.disabled = false;
+  }
+});

@@ -1,0 +1,17 @@
+name: Visible updater checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/visible-update-status]
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile updater.py gui/app.py
+      - run: node --check gui/web/script.js
+      - run: python -m unittest discover -s tests -p "test_visible_updates.py" -v

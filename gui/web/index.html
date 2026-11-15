@@ -67,6 +67,7 @@
       <div class="nav-section">
         <div class="nav-label">System</div>
         <a class="nav-item" id="nav-api" href="#">API</a>
+        <a class="nav-item" id="nav-updates" href="#">Check for Updates</a>
         <a class="nav-item" id="nav-open-folder" href="#">Open Folder</a>
       </div>
       <div class="nav-section">
@@ -252,6 +253,19 @@
         <button class="btn btn-danger" id="plan-stop">Stop</button>
         <button class="btn btn-ghost" id="plan-close">Close window</button>
         <button class="btn btn-primary" id="plan-run">Run plan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-app update status and manual update -->
+  <div class="modal-overlay" id="update-modal" hidden>
+    <div class="modal" role="dialog" aria-labelledby="update-modal-title">
+      <h2 id="update-modal-title">Trickster Updates</h2>
+      <p class="modal-sub" id="update-status-text" aria-live="polite">Checking for updates...</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="update-close">Close</button>
+        <button class="btn btn-ghost" id="update-check">Check again</button>
+        <button class="btn btn-primary" id="update-install" hidden>Update now</button>
       </div>
     </div>
   </div>
