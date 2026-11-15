@@ -244,11 +244,19 @@ class FleetController:
                     raise RuntimeError("No profile browser context")
                 context = browser.contexts[0]
                 page = context.pages[0] if context.pages else context.new_page()
+                transfer = {"bytes": 0}
+                cdp = context.new_cdp_session(page)
+                cdp.send("Network.enable")
+                cdp.on("Network.loadingFinished", lambda event: transfer.__setitem__(
+                    "bytes", transfer["bytes"] + max(0, int(event.get("encodedDataLength", 0)))))
                 page.route("**/*", lambda route: route.abort() if
                            route.request.resource_type in ("image", "font")
                            else route.continue_())
                 for clip in clips:
                     if self.stop_event.is_set() or time.monotonic() >= cutoff:
+                        break
+                    if used_bytes + transfer["bytes"] >= SOFT_STOP_BYTES:
+                        self._set(last_error=f"Profile {pid}: estimated bandwidth safety limit reached")
                         break
                     ident = f"{clip['campaign_id']}:{clip['id']}"
                     if ident in already:
@@ -295,6 +303,8 @@ class FleetController:
                         already.add(ident)
                         progress[key] = sorted(already)
                         self._atomic_write(ledger, progress)
+                        byte_usage[f"{month}:{pid}"] = used_bytes + transfer["bytes"]
+                        self._atomic_write(bandwidth, byte_usage)
                         self.state["completed"] += 1
                     self.stop_event.wait(random.uniform(0.4, 2.5))
         except Exception as exc:
