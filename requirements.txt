@@ -4,3 +4,4 @@ pyinstaller>=6.0
 supabase>=2.0.0
 pywin32>=306; sys_platform == "win32"
 Pillow>=10.0.0
+tzdata>=2025.1
