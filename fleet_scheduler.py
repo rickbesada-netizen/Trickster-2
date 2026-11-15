@@ -107,6 +107,27 @@ class LocalApiClient:
         return self.call("profile-close", {"profile_id": pid})
 
 
+def discover_profile_ids(api_url, token=""):
+    """Read a stable global profile inventory from ixBrowser or Trickster API."""
+    client = LocalApiClient(api_url, token)
+    ids, page = [], 1
+    while True:
+        result = client.call("profile-list", {"page": page, "limit": 100})
+        rows = result.get("list", result.get("data", []))
+        if not isinstance(rows, list):
+            raise ValueError("Unexpected profile-list response")
+        for row in rows:
+            pid = row.get("profile_id")
+            if pid is not None:
+                ids.append(pid)
+        if len(ids) >= int(result.get("total", 0)) or not rows:
+            break
+        page += 1
+        if page > 100:
+            raise ValueError("Profile-list pagination exceeded safety limit")
+    return sorted(ids, key=lambda x: str(x))
+
+
 class FleetController:
     def __init__(self, config_path):
         self.config_path = Path(config_path)
@@ -130,7 +151,8 @@ class FleetController:
         try:
             config = json.loads(self.config_path.read_text(encoding="utf-8"))
             machine = int(config["machine_index"])
-            profile_ids = config["profile_ids"]
+            profile_ids = config.get("profile_ids") or discover_profile_ids(
+                config.get("api_url", "http://127.0.0.1:53200"), config.get("api_token", ""))
             profiles, cap = profile_partition(profile_ids, machine)
             campaigns = config["campaigns"]
             select_daily_clips(profiles[0], campaigns, dt.date.today().isoformat())
