@@ -53,6 +53,7 @@
         <div class="nav-label">Browser Profile</div>
         <a class="nav-item active" href="#">Profile List</a>
         <a class="nav-item" id="nav-plan" href="#">Timed Plan</a>
+        <a class="nav-item" id="nav-fleet" href="#">Fleet Schedule</a>
       </div>
       <div class="nav-section">
         <div class="nav-label">Groups</div>
@@ -470,6 +471,28 @@
       </p>
       <div class="modal-actions">
         <button class="btn btn-ghost" id="ext-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily distributed fleet controller -->
+  <div class="modal-overlay" id="fleet-modal" hidden>
+    <div class="modal modal-wide" role="dialog" aria-labelledby="fleet-modal-title">
+      <h2 id="fleet-modal-title">Fleet Schedule (13 laptops)</h2>
+      <p class="modal-sub">Run a machine's portion of the 1,000-profile plan.
+      Each laptop needs the same ordered list of 1,000 profile IDs and campaigns,
+      but its own machine_index (0-12). Edit the JSON, save, then start.
+      Schedule: 8 hours active, 16 hours idle. Automated runs require permission
+      from the platform owner.</p>
+      <label class="field" for="fleet-json">Fleet configuration JSON</label>
+      <textarea id="fleet-json" rows="13" style="width:100%;font-family:monospace;" spellcheck="false"></textarea>
+      <p class="modal-sub" id="fleet-message"></p>
+      <p class="modal-sub" id="fleet-status"></p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="fleet-close">Close</button>
+        <button class="btn btn-ghost" id="fleet-save">Save configuration</button>
+        <button class="btn btn-danger" id="fleet-stop">Stop fleet</button>
+        <button class="btn btn-primary" id="fleet-start">Start fleet</button>
       </div>
     </div>
   </div>
