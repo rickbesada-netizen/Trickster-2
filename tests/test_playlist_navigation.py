@@ -67,7 +67,34 @@ class NavigationTests(unittest.TestCase):
         page = FakePage(has_next=False)
         success, message = nav.advance(page, confirmation_seconds=0)
         self.assertFalse(success)
-        self.assertIn("no visible enabled Next", message)
+        self.assertIn("no usable Next control", message)
+
+    def test_mobile_playlist_link_fallback_when_player_controls_hidden(self):
+        class PlaylistPage(FakePage):
+            def __init__(self):
+                super().__init__(mobile=True, has_next=False)
+                self.marked = False
+            def evaluate(self, script):
+                self.marked = True
+                return {"found": True, "count": 4}
+            def locator(self, css):
+                if css == '[data-trickster-next-target="1"]':
+                    return Target(self._click, visible=self.marked)
+                return super().locator(css)
+        page = PlaylistPage()
+        success, message = nav.advance(page, confirmation_seconds=0.1)
+        self.assertTrue(success, message)
+        self.assertIn("playlist panel", message)
+        self.assertEqual(page.clicks, 1)
+
+    def test_playlist_fallback_does_not_click_unrelated_suggestions(self):
+        class NoPlaylistPage(FakePage):
+            def evaluate(self, script):
+                return {"found": False, "why": "next playlist link not in current panel"}
+        page = NoPlaylistPage(mobile=True, has_next=False)
+        success, msg = nav.advance(page, confirmation_seconds=0)
+        self.assertFalse(success)
+        self.assertEqual(page.clicks, 0)
 
     def test_click_without_navigation_not_marked_success(self):
         page = FakePage(changes=False)
