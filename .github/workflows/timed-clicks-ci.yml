@@ -1,0 +1,20 @@
+name: Timed click automation checks
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/timed-plan-auto-click]
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python syntax
+        run: python -m py_compile plan_runner.py tests/test_timed_clicks.py
+      - name: Check desktop JavaScript syntax
+        run: node --check gui/web/script.js
+      - name: Test repeat-click behavior
+        run: python -m unittest discover -s tests -p "test_timed_clicks.py" -v
