@@ -331,7 +331,8 @@ const planStatus = document.getElementById('plan-status');
 let planTimer = null;
 
 const PLAN_KEYS = ['Down arrow', 'Up arrow', 'Page Down', 'Page Up', 'Space', 'Home', 'End',
-  'Enter', 'Tab', 'Shift+Tab', 'Escape', 'Backspace', 'Left arrow', 'Right arrow'];
+  'Enter', 'Tab', 'Shift+Tab', 'Escape', 'Backspace', 'Left arrow', 'Right arrow',
+  'Shift+N', 'Shift+P', 'K', 'N', 'P'];
 
 function addActionLine(box, vals = {}) {
   const line = document.createElement('div');
@@ -342,7 +343,8 @@ function addActionLine(box, vals = {}) {
     <input type="number" data-a="at" min="0" placeholder="10" class="act-sec" />
     <span>seconds</span>
     <select data-a="type"><option value="key">press a key</option><option value="text">type text</option></select>
-    <select data-a="key">${keyOpts}</select>
+    <select data-a="key">${keyOpts}<option value="__custom__">Custom shortcut...</option></select>
+    <input type="text" data-a="shortcut" class="act-text" placeholder="e.g. Ctrl+Shift+N" maxlength="40" title="Type a browser shortcut such as Shift+N or Ctrl+ArrowRight" hidden />
     <input type="number" data-a="repeat" min="1" max="50" value="1" class="act-rep" title="How many times" />
     <span data-a="times" title="times">times</span>
     <input type="text" data-a="text" maxlength="300" placeholder="text to type" class="act-text" />
@@ -350,13 +352,23 @@ function addActionLine(box, vals = {}) {
   const sync = () => {
     const isKey = line.querySelector('[data-a=type]').value === 'key';
     line.querySelector('[data-a=key]').hidden = !isKey;
+    line.querySelector('[data-a=shortcut]').hidden = !isKey || line.querySelector('[data-a=key]').value !== '__custom__';
     line.querySelector('[data-a=repeat]').hidden = !isKey;
     line.querySelector('[data-a=times]').hidden = !isKey;
     line.querySelector('[data-a=text]').hidden = isKey;
   };
   line.querySelector('[data-a=at]').value = vals.at ?? '';
   line.querySelector('[data-a=type]').value = vals.type || 'key';
-  if (vals.type === 'key' && vals.value) line.querySelector('[data-a=key]').value = vals.value;
+  if (vals.type === 'key' && vals.value) {
+    const shortcut = vals.value;
+    if (PLAN_KEYS.includes(shortcut)) {
+      line.querySelector('[data-a=key]').value = shortcut;
+    } else {
+      line.querySelector('[data-a=key]').value = '__custom__';
+      line.querySelector('[data-a=shortcut]').value = shortcut;
+    }
+  }
+  line.querySelector('[data-a=key]').addEventListener('change', sync);
   line.querySelector('[data-a=repeat]').value = vals.repeat || 1;
   if (vals.type === 'text') line.querySelector('[data-a=text]').value = vals.value || '';
   line.querySelector('[data-a=type]').addEventListener('change', sync);
@@ -372,7 +384,11 @@ function readActions(box) {
     return {
       at: l.querySelector('[data-a=at]').value.trim(),
       type,
-      value: type === 'key' ? l.querySelector('[data-a=key]').value : l.querySelector('[data-a=text]').value,
+      value: type === 'key'
+        ? (l.querySelector('[data-a=key]').value === '__custom__'
+            ? l.querySelector('[data-a=shortcut]').value.trim()
+            : l.querySelector('[data-a=key]').value)
+        : l.querySelector('[data-a=text]').value,
       repeat: type === 'key' ? l.querySelector('[data-a=repeat]').value : 1,
     };
   });
