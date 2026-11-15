@@ -175,6 +175,7 @@ class FleetController:
             day = start.date().isoformat()
         deadline = start + dt.timedelta(hours=8)
         seconds_to_start = max(0, (start - now).total_seconds())
+        elapsed_at_launch = max(0, (now - start).total_seconds())
         if self.stop_event.wait(seconds_to_start):
             return
         started_monotonic = time.monotonic()
@@ -186,7 +187,7 @@ class FleetController:
         for pass_index, (count, offset) in enumerate(zip(SLOTS, PASS_OFFSETS_HOURS)):
             if self.stop_event.is_set() or time.monotonic() >= eight_hours_end:
                 break
-            pass_start = started_monotonic + max(0, offset * 3600 - seconds_to_start)
+            pass_start = started_monotonic + max(0, offset * 3600 - elapsed_at_launch)
             if not wait_until(pass_start, self.stop_event):
                 break
             self._set(pass_number=pass_index + 1)
@@ -226,11 +227,10 @@ class FleetController:
                                 config.get("api_token", ""))
         with self.lock:
             self.state["running"] += 1
-        opened = False
+        opened = True  # attempt cleanup even if an API open partially succeeds
         browser = None
         try:
             response = client.open(pid)
-            opened = True
             ws = response.get("ws")
             debug = response.get("debugging_address")
             if not ws and debug:
@@ -268,7 +268,7 @@ class FleetController:
                         raise ValueError("Each clip requires its href on the creator page")
                     # Find the creator page's link; never navigate directly to clip URL.
                     try:
-                        link = page.locator(f"a[href='{href}']").first
+                        link = page.locator(f"{selector}[href='{href}']").first
                         link.click(timeout=15000)
                     except Exception:
                         # Never fall back to direct navigation: keep the creator-page route.
