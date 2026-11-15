@@ -54,7 +54,53 @@ KEYS = {
     "Down arrow": "ArrowDown", "Up arrow": "ArrowUp", "Left arrow": "ArrowLeft", "Right arrow": "ArrowRight",
     "Page Down": "PageDown", "Page Up": "PageUp", "Space": "Space", "Home": "Home", "End": "End",
     "Tab": "Tab", "Shift+Tab": "Shift+Tab", "Enter": "Enter", "Escape": "Escape", "Backspace": "Backspace",
+    "Shift+N": "Shift+N", "Shift+P": "Shift+P", "K": "K", "N": "N", "P": "P",
 }
+# Browser-shortcut syntax supported by Playwright/Patchright. Only known key
+# names or letters/digits are allowed, so a typo cannot silently inject a
+# sequence of unrelated keypresses.
+_MODIFIERS = {"ctrl": "Control", "control": "Control", "shift": "Shift",
+              "alt": "Alt", "meta": "Meta"}
+_NAMED_KEYS = {
+    "space": "Space", "tab": "Tab", "enter": "Enter", "escape": "Escape",
+    "backspace": "Backspace", "home": "Home", "end": "End",
+    "arrowdown": "ArrowDown", "arrowup": "ArrowUp",
+    "arrowleft": "ArrowLeft", "arrowright": "ArrowRight",
+    "pagedown": "PageDown", "pageup": "PageUp",
+}
+
+
+def normalise_shortcut(raw: str) -> Optional[str]:
+    """Convert a user-entered combination such as ctrl + shift + n to CDP syntax."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    if raw in KEYS:
+        return KEYS[raw]
+    if raw in KEYS.values():
+        return raw
+    parts = [p.strip() for p in raw.split("+")]
+    if not parts or any(not p for p in parts) or len(parts) > 5:
+        return None
+    mods, key = [], None
+    for pos, part in enumerate(parts):
+        lower = part.lower().replace(" ", "")
+        if lower in _MODIFIERS and pos < len(parts) - 1:
+            value = _MODIFIERS[lower]
+            if value in mods:
+                return None
+            mods.append(value)
+        elif pos == len(parts) - 1:
+            if len(part) == 1 and part.isascii() and part.isalnum():
+                key = part.upper()
+            elif lower in _NAMED_KEYS:
+                key = _NAMED_KEYS[lower]
+            elif re.fullmatch(r"f(?:[1-9]|1[0-2])", lower):
+                key = lower.upper()
+        else:
+            return None
+    return "+".join([*mods, key]) if key else None
+
+
 MAX_ACTIONS_PER_PAGE = 30
 MAX_TEXT_LENGTH = 300
 MAX_KEY_REPEAT = 50
@@ -76,7 +122,7 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
             return [], f"action {n}: the second must be between 0 and {seconds - 1} (this page is shown for {seconds}s)"
         if kind == "key":
             label = a.get("value")
-            key = KEYS.get(label) or (label if label in KEYS.values() else None)
+            key = normalise_shortcut(label)
             if not key:
                 return [], f"action {n}: unknown key '{label}'"
             try:
@@ -116,7 +162,7 @@ def _key_label(name: str) -> Optional[str]:
         l = label.lower()
         if l == n or l.replace(" arrow", "") == n or l.replace(" ", "") == flat:
             return label
-    return None
+    return normalise_shortcut(name)
 
 
 def _parse_option(opt: str, line_no: int):
