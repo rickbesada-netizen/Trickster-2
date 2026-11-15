@@ -1,0 +1,25 @@
+name: Adaptive playlist Next tests
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/adaptive-playlist-next]
+jobs:
+  unit-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python and UI syntax
+        shell: pwsh
+        run: |
+          python -m py_compile plan_runner.py playlist_navigation.py
+          node --check gui/web/script.js
+      - name: Verify playlist Next actions
+        run: python -m unittest discover -s tests -p "test_playlist_navigation.py" -v
+      - name: Verify existing timed click actions
+        run: python -m unittest discover -s tests -p "test_timed_clicks.py" -v
+      - name: Verify existing shortcuts
+        run: python -m unittest discover -s tests -p "test_timed_shortcuts.py" -v

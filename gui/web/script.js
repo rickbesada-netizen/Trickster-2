@@ -342,29 +342,32 @@ function addActionLine(box, vals = {}) {
     <span>At</span>
     <input type="number" data-a="at" min="0" placeholder="10" class="act-sec" />
     <span>seconds</span>
-    <select data-a="type"><option value="key">press a key</option><option value="text">type text</option><option value="click">click element</option></select>
+    <select data-a="type"><option value="key">press a key</option><option value="text">type text</option><option value="click">click element</option><option value="next">next playlist item</option></select>
     <select data-a="key">${keyOpts}<option value="__custom__">Custom shortcut...</option></select>
     <input type="text" data-a="shortcut" class="act-text" placeholder="e.g. Ctrl+Shift+N" maxlength="40" title="Type a browser shortcut such as Shift+N or Ctrl+ArrowRight" hidden />
     <input type="number" data-a="repeat" min="1" max="50" value="1" class="act-rep" title="How many times" />
     <span data-a="times" title="times">times</span>
     <input type="text" data-a="text" maxlength="300" placeholder="text to type" class="act-text" />
     <input type="text" data-a="selector" maxlength="250" placeholder="CSS selector, e.g. button.next" class="act-text" title="Button CSS selector on your website" hidden />
+    <select data-a="next-mode" hidden><option value="interval">Advance every N seconds</option><option value="ended">Advance when video ends</option></select>
     <span data-a="repeat-label" hidden>Repeat every</span>
     <input type="number" data-a="interval" min="0" max="3600" step="1" value="0" class="act-sec" title="Seconds between automatic clicks (0 = once)" hidden />
     <span data-a="interval-unit" hidden>seconds (0 = once)</span>
     <button class="plan-x" title="Remove this action">&times;</button>`;
   const sync = () => {
     const type = line.querySelector('[data-a=type]').value;
-    const isKey = type === 'key', isClick = type === 'click';
+    const isKey = type === 'key', isClick = type === 'click', isNext = type === 'next';
     line.querySelector('[data-a=key]').hidden = !isKey;
     line.querySelector('[data-a=shortcut]').hidden = !isKey || line.querySelector('[data-a=key]').value !== '__custom__';
     line.querySelector('[data-a=repeat]').hidden = !isKey;
     line.querySelector('[data-a=times]').hidden = !isKey;
     line.querySelector('[data-a=text]').hidden = type !== 'text';
     line.querySelector('[data-a=selector]').hidden = !isClick;
-    line.querySelector('[data-a=interval]').hidden = !isClick;
-    line.querySelector('[data-a=repeat-label]').hidden = !isClick;
-    line.querySelector('[data-a=interval-unit]').hidden = !isClick;
+    line.querySelector('[data-a=next-mode]').hidden = !isNext;
+    const needsInterval = isClick || (isNext && line.querySelector('[data-a=next-mode]').value === 'interval');
+    line.querySelector('[data-a=interval]').hidden = !needsInterval;
+    line.querySelector('[data-a=repeat-label]').hidden = !needsInterval;
+    line.querySelector('[data-a=interval-unit]').hidden = !needsInterval;
   };
   line.querySelector('[data-a=at]').value = vals.at ?? '';
   line.querySelector('[data-a=type]').value = vals.type || 'key';
@@ -384,7 +387,18 @@ function addActionLine(box, vals = {}) {
     line.querySelector('[data-a=selector]').value = vals.value || '';
     line.querySelector('[data-a=interval]').value = vals.interval ?? 0;
   }
-  line.querySelector('[data-a=type]').addEventListener('change', sync);
+  if (vals.type === 'next') {
+    line.querySelector('[data-a=next-mode]').value = vals.mode || 'interval';
+    line.querySelector('[data-a=interval]').value = vals.interval ?? 180;
+  }
+  line.querySelector('[data-a=next-mode]').addEventListener('change', sync);
+  line.querySelector('[data-a=type]').addEventListener('change', () => {
+    if (line.querySelector('[data-a=type]').value === 'next'
+        && Number(line.querySelector('[data-a=interval]').value) === 0) {
+      line.querySelector('[data-a=interval]').value = 180;
+    }
+    sync();
+  });
   line.querySelector('.plan-x').addEventListener('click', () => { line.remove(); refreshActCount(box); savePlan(); });
   sync();
   box.querySelector('.act-list').appendChild(line);
@@ -401,9 +415,11 @@ function readActions(box) {
         ? (l.querySelector('[data-a=key]').value === '__custom__'
             ? l.querySelector('[data-a=shortcut]').value.trim()
             : l.querySelector('[data-a=key]').value)
-        : (type === 'click' ? l.querySelector('[data-a=selector]').value.trim() : l.querySelector('[data-a=text]').value),
+        : (type === 'click' ? l.querySelector('[data-a=selector]').value.trim()
+          : (type === 'next' ? '' : l.querySelector('[data-a=text]').value)),
       repeat: type === 'key' ? l.querySelector('[data-a=repeat]').value : 1,
-      interval: type === 'click' ? l.querySelector('[data-a=interval]').value : 0,
+      interval: (type === 'click' || type === 'next') ? l.querySelector('[data-a=interval]').value : 0,
+      mode: type === 'next' ? l.querySelector('[data-a=next-mode]').value : 'interval',
     };
   });
 }
@@ -433,7 +449,7 @@ function addPlanRow(vals = {}) {
   sub.className = 'act-row';
   sub.hidden = true;
   sub.innerHTML = `<td colspan="6"><div class="act-box">
-      <div class="act-help">Happens automatically while this page is open. For Click element, enter the website's button CSS selector and set Repeat every to advance the playlist without keyboard input.</div>
+      <div class="act-help">Happens automatically while this page is open. For automatic mobile/desktop navigation, choose Next playlist item. It finds a visible Next control and confirms navigation, with repeat intervals or video-end detection.</div>
       <div class="act-list"></div>
       <button class="btn btn-ghost btn-small act-add">+ Add action</button></div></td>`;
   const box = sub.querySelector('.act-box');
