@@ -135,7 +135,8 @@ PLAYLIST_NEXT_JS = r"""
         '[selected], [aria-current="true"], [aria-selected="true"], ' +
         '[is-selected], [data-selected="true"]'
       );
-      return {row, target:anchor || row, vid, selected};
+      const rowIndex = Number(row.getAttribute('data-index') || row.getAttribute('index') || 0);
+      return {row, target:anchor || row, vid, selected, rowIndex};
     });
     let current = entries.findIndex(e => e.vid === currentId);
     if (current < 0) current = entries.findIndex(e => e.selected);
@@ -148,14 +149,20 @@ PLAYLIST_NEXT_JS = r"""
       // Some mobile playlist panels omit the current video from the displayed
       // row list. Only infer the first row when the header reliably says 1/N.
       const text = (root.innerText || '').slice(0, 500);
-      const match = text.match(/(?:^|\s)1\s*\/\s*(\d{1,6})(?:\s|$)/);
-      if (match && Number(match[1]) > 1 &&
-          entries[0].vid !== currentId && !entries[0].selected) {
-        next = entries[0];
-        method = 'first row after playlist position 1';
-      } else {
-        reason = 'no current row or unambiguous 1/N playlist position';
+      const match = text.match(/(?:^|\s)(\d{1,6})\s*\/\s*(\d{1,6})(?:\s|$)/);
+      const pos = match ? Number(match[1]) : 0;
+      const total = match ? Number(match[2]) : 0;
+      if (pos > 0 && pos < total) {
+        next = entries.find(e => e.rowIndex === pos + 1) || null;
+        if (next) {
+          method = 'indexed playlist row';
+        } else if (pos === 1 && entries[0].vid !== currentId &&
+                   !entries[0].selected) {
+          next = entries[0];
+          method = 'first row after playlist position 1';
+        }
       }
+      if (!next) reason = 'no current row or unambiguous next playlist position';
     } else {
       reason = 'current video is last visible playlist row';
     }
