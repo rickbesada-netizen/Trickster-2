@@ -40,7 +40,7 @@ function scenario({current = 'alone', names = ['too-late', 'hardest'], position 
 
 let s = scenario({});
 assert.equal(s.outcome.found, true);
-assert.equal(s.outcome.method, 'first row following playlist item 1');
+assert.equal(s.outcome.method, 'first row after playlist position 1');
 assert.equal(s.rows[0].anchor.chosen, true);
 assert.equal(s.rows[1].anchor.chosen, false);
 
