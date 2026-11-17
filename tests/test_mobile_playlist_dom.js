@@ -18,6 +18,7 @@ function scenario({current = 'alone', names = ['too-late', 'hardest'], position 
     };
     const row = {
       anchor, matches: () => false, querySelector: query => query.startsWith('a[') ? anchor : null,
+      parentElement: null,
       getAttribute: key => key === 'data-index' && index ? String(index[i]) : null
     };
     return row;
@@ -28,7 +29,8 @@ function scenario({current = 'alone', names = ['too-late', 'hardest'], position 
   };
   const document = {
     querySelector: () => null,
-    querySelectorAll: () => roots ? [root] : []
+    querySelectorAll: query => query.includes('ytm-playlist-panel-renderer') && roots ? [root] : [],
+    body: {}
   };
   const context = {document, location: {href: 'https://m.youtube.com/watch?v=' + current + '&list=PLTEST'}, URL};
   const run = vm.runInNewContext('(' + match[1] + ')', context);
@@ -38,7 +40,7 @@ function scenario({current = 'alone', names = ['too-late', 'hardest'], position 
 
 let s = scenario({});
 assert.equal(s.outcome.found, true);
-assert.equal(s.outcome.method, 'first row following playlist item 1');
+assert.equal(s.outcome.method, 'first row after playlist position 1');
 assert.equal(s.rows[0].anchor.chosen, true);
 assert.equal(s.rows[1].anchor.chosen, false);
 
