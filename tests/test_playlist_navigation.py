@@ -84,7 +84,7 @@ class NavigationTests(unittest.TestCase):
         page = PlaylistPage()
         success, message = nav.advance(page, confirmation_seconds=0.1)
         self.assertTrue(success, message)
-        self.assertIn("playlist panel", message)
+        self.assertIn("mobile playlist", message)
         self.assertEqual(page.clicks, 1)
 
     def test_playlist_fallback_does_not_click_unrelated_suggestions(self):
