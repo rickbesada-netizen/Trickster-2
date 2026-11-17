@@ -73,111 +73,97 @@ def find_next(page):
 # choose its immediately following row, not a recommendation.
 PLAYLIST_NEXT_JS = r"""
 () => {
-  const previous = document.querySelector('[data-trickster-next-target="1"]');
-  if (previous) previous.removeAttribute('data-trickster-next-target');
-
-  const current = new URL(location.href);
-  const playlistId = current.searchParams.get('list');
-  const videoId = current.searchParams.get('v');
-  if (!playlistId || !videoId)
-    return {found: false, why: 'watch URL has no playlist and current video ID'};
-
-  // Only traverse playlist-specific containers; NEVER generic recommendations.
-  const roots = [...document.querySelectorAll(
-    'ytm-playlist-panel-renderer, ytm-playlist-video-list-renderer, ' +
-    'ytm-playlist-renderer, ytm-playlist-panel, ' +
-    'ytd-playlist-panel-renderer, [class*="playlist-panel"], ' +
-    '[id*="playlist-panel"], [class*="playlist-video-list"]'
-  )];
-  if (!roots.length) return {found: false, why: 'playlist panel not present in DOM'};
-
-  const parse = href => {
-    try {
-      const u = new URL(href, location.href);
-      if (!u.pathname.endsWith('/watch')) return null;
-      const list = u.searchParams.get('list');
-      if (list && list !== playlistId) return null;
-      return u.searchParams.get('v');
-    } catch (_) { return null; }
-  };
-
-  const isSelected = el => !!el && (
-    el.matches('[aria-current="true"], [selected], [is-selected], ' +
-               '[data-selected="true"], [class*="selected"], [class*="active"]')
-    || !!el.querySelector('[aria-current="true"], [selected], [is-selected], ' +
-                        '[data-selected="true"], [class*="selected"]'));
-
-  const makeEntry = el => {
-    const link = el.matches('a[href]') ? el :
-      el.querySelector('a[href*="/watch"]');
-    const id = link ? parse(link.getAttribute('href')) : null;
-    const target = link || el;
-    return {el: target, id, selected: isSelected(el),
-            index: Number(el.getAttribute('data-index') ||
-                          el.getAttribute('index') || 0)};
-  };
-
-  let lastReason = 'no suitable next playlist row found';
-  for (const root of roots) {
-    // Prefer playlist item components, including mobile rows that don't carry
-    // ordinary anchor URLs. Never search outside root.
-    let rows = [...root.querySelectorAll(
-      'ytm-playlist-panel-video-renderer, ytm-playlist-video-renderer, ' +
-      'ytm-compact-playlist-video-renderer, ytd-playlist-panel-video-renderer, ' +
-      'ytm-playlist-panel-item, [class*="playlist-video-item"]'
-    )];
-    if (!rows.length) {
-      rows = [...root.querySelectorAll('a[href*="/watch"]')];
-    }
-    if (!rows.length) continue;
-
-    const entries = rows.map(makeEntry).filter(e => !!e.el);
-    if (!entries.length) continue;
-    // Remove nested duplicates, but do not deduplicate by title (same artist
-    // or song may occur multiple times in a playlist).
-    const distinct = [];
-    const seen = new Set();
-    for (const item of entries) {
-      const marker = item.el;
-      if (!seen.has(marker)) { distinct.push(item); seen.add(marker); }
-    }
-    const currentRow = distinct.findIndex(e => e.id === videoId || e.selected);
-    let target = null, method = '';
-    if (currentRow >= 0 && currentRow + 1 < distinct.length) {
-      target = distinct[currentRow + 1];
-      method = 'following current playlist row';
-    } else if (currentRow < 0) {
-      // In m.youtube.com the current item may be absent from the visible row
-      // list. The playlist header says "Clean songs 1 / 618" and the first
-      // visible row is the NEXT video (as shown in the user's screenshot).
-      const summary = (root.innerText || '').slice(0, 500);
-      const position = summary.match(/(?:^|\s)(\d{1,6})\s*\/\s*(\d{1,6})(?:\s|$)/);
-      const currentPos = position ? Number(position[1]) : 0;
-      const total = position ? Number(position[2]) : 0;
-      if (currentPos > 0 && currentPos < total) {
-        // If rows expose 1-based numeric positions, require the exact next
-        // position. Otherwise only allow this fallback at item #1, where
-        // the first row being a different video is a grounded next candidate.
-        target = distinct.find(e => e.index === currentPos + 1) || null;
-        if (target) {
-          method = 'indexed next playlist row';
-        } else if (currentPos === 1 &&
-                   distinct[0].id !== videoId &&
-                   !distinct[0].selected) {
-          target = distinct[0];
-          method = 'first row following playlist item 1';
-        } else {
-          lastReason = 'playlist header position found but next row is ambiguous';
-        }
-      } else {
-        lastReason = 'current playlist row missing and position not available';
+  const marker = 'data-trickster-next-target';
+  const previous = document.querySelector('[' + marker + '="1"]');
+  if (previous) previous.removeAttribute(marker);
+  const url = new URL(location.href);
+  const currentId = url.searchParams.get('v');
+  const listId = url.searchParams.get('list');
+  if (!currentId || !listId)
+    return {found:false, why:'not a playlist watch URL'};
+  const rowSelector = [
+    'ytm-playlist-video-renderer', 'ytm-playlist-panel-video-renderer',
+    'ytm-compact-playlist-video-renderer', 'ytm-compact-video-renderer',
+    'ytm-playlist-panel-item', 'ytd-playlist-panel-video-renderer',
+    '[class*="playlist-video-item"]'
+  ].join(',');
+  const rootSelector = [
+    'ytm-playlist-panel-renderer', 'ytm-playlist-video-list-renderer',
+    'ytm-playlist-renderer', 'ytm-playlist-panel',
+    'ytd-playlist-panel-renderer', '[class*="playlist-panel"]',
+    '[id*="playlist-panel"]', '[class*="playlist-video-list"]'
+  ].join(',');
+  // On newer mobile layouts the list rows may be under a list container
+  // without a recognized "panel" ancestor.
+  const roots = [...document.querySelectorAll(rootSelector)];
+  for (const row of document.querySelectorAll(rowSelector)) {
+    let parent = row.parentElement;
+    while (parent && parent !== document.body) {
+      if (parent.matches('ytm-playlist-video-list-renderer, ytm-playlist-renderer, ' +
+                         'ytm-playlist-panel-renderer, [class*="playlist"]')) {
+        if (!roots.includes(parent)) roots.push(parent);
+        break;
       }
+      parent = parent.parentElement;
     }
-    if (!target || target.id === videoId) continue;
-    target.el.setAttribute('data-trickster-next-target', '1');
-    return {found: true, count: distinct.length, method};
   }
-  return {found: false, why: lastReason};
+  let reason = 'no playlist panel rows found';
+  let observed = 0;
+  for (const root of roots) {
+    const rows = [...root.querySelectorAll(rowSelector)];
+    // Only fall back to links when they live inside a recognized playlist
+    // container; never choose items from generic recommendations.
+    if (!rows.length) rows.push(...root.querySelectorAll('a[href*="/watch"]'));
+    if (!rows.length) continue;
+    observed = Math.max(observed, rows.length);
+    const entries = rows.map(row => {
+      const anchor = row.matches('a[href]') ? row :
+        row.querySelector('a[href*="/watch"]');
+      let vid = null;
+      try {
+        if (anchor) {
+          const u = new URL(anchor.getAttribute('href'), location.href);
+          const linkList = u.searchParams.get('list');
+          if (!linkList || linkList === listId) vid = u.searchParams.get('v');
+        }
+      } catch (_) {}
+      const selected = row.matches(
+        '[selected], [aria-current="true"], [aria-selected="true"], ' +
+        '[is-selected], [data-selected="true"], [class*="selected"], ' +
+        '[class*="active"]'
+      ) || !!row.querySelector(
+        '[selected], [aria-current="true"], [aria-selected="true"], ' +
+        '[is-selected], [data-selected="true"]'
+      );
+      return {row, target:anchor || row, vid, selected};
+    });
+    let current = entries.findIndex(e => e.vid === currentId);
+    if (current < 0) current = entries.findIndex(e => e.selected);
+    let next = null;
+    let method = '';
+    if (current >= 0 && current + 1 < entries.length) {
+      next = entries[current + 1];
+      method = 'row after current video';
+    } else if (current < 0) {
+      // Some mobile playlist panels omit the current video from the displayed
+      // row list. Only infer the first row when the header reliably says 1/N.
+      const text = (root.innerText || '').slice(0, 500);
+      const match = text.match(/(?:^|\s)1\s*\/\s*(\d{1,6})(?:\s|$)/);
+      if (match && Number(match[1]) > 1 &&
+          entries[0].vid !== currentId && !entries[0].selected) {
+        next = entries[0];
+        method = 'first row after playlist position 1';
+      } else {
+        reason = 'no current row or unambiguous 1/N playlist position';
+      }
+    } else {
+      reason = 'current video is last visible playlist row';
+    }
+    if (!next || next.vid === currentId) continue;
+    next.target.setAttribute(marker, '1');
+    return {found:true, method, rows:entries.length, roots:roots.length};
+  }
+  return {found:false, why:reason, rows:observed, roots:roots.length};
 }
 """
 
@@ -188,12 +174,15 @@ def find_playlist_link(page):
         outcome = page.evaluate(PLAYLIST_NEXT_JS)
         if outcome and outcome.get("found"):
             target = page.locator('[data-trickster-next-target="1"]').first
-            if target.is_visible(timeout=500) and target.is_enabled(timeout=500):
-                method = outcome.get("method", "next playlist row")
-                return target, "next item in playlist panel (" + method + ")"
-    except Exception:
-        pass
-    return None, None
+            if target.is_visible(timeout=800) and target.is_enabled(timeout=800):
+                return target, "mobile playlist (" + outcome.get("method", "next row") + ")"
+            return None, "playlist row found but not visible/enabled"
+        if outcome:
+            return None, ("playlist scan: " + str(outcome.get("why", "unknown")) +
+                          f" (roots={outcome.get('roots', 0)}, rows={outcome.get('rows', 0)})")
+    except Exception as exc:
+        return None, "playlist DOM scan failed: " + str(exc)[:150]
+    return None, "playlist scan unavailable"
 
 
 def video_ended(page):
@@ -212,8 +201,11 @@ def advance(page, stop_event=None, confirmation_seconds=4):
         return False, "Playlist next: stopped"
     before = media_identity(page)
     target, source = find_next(page)
+    scan_diagnostic = ""
     if target is None:
         target, source = find_playlist_link(page)
+        if target is None:
+            scan_diagnostic = source or "playlist scan unavailable"
     if target is None:
         # Hover may reveal controls on Chromium even with a mobile fingerprint.
         try:
@@ -222,8 +214,7 @@ def advance(page, stop_event=None, confirmation_seconds=4):
         except Exception:
             pass
     if target is None:
-        return False, ("Playlist next: no usable Next control or next playlist row "
-                       "found. This mobile layout may need a site-specific selector.")
+        return False, ("Playlist next: no usable Next control; " + scan_diagnostic)
     try:
         target.click(timeout=2500)
     except Exception as error:
