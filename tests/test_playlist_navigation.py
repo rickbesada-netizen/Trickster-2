@@ -69,7 +69,7 @@ class NavigationTests(unittest.TestCase):
         class MobilePlayer(FakePage):
             def __init__(self):
                 super().__init__(mobile=True, has_next=False)
-                self.url = "https://m.youtube.com/watch?v=a&list=PLTEST&index=1"
+                self.url = "https://m.youtube.com/watch?v=a&index=1&list=PLTEST"
             def locator(self, selector):
                 if selector == "button.player-middle-controls-prev-next-button":
                     return ButtonPair(self)
