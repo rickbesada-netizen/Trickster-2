@@ -57,6 +57,46 @@ class NavigationTests(unittest.TestCase):
         self.assertIn("confirmed", msg)
         self.assertEqual(page.clicks, 1)
 
+    def test_real_mobile_next_player_button_is_second_of_pair(self):
+        class ButtonPair:
+            def __init__(self, owner):
+                self.owner = owner
+            def count(self):
+                return 2
+            def nth(self, index):
+                assert index == 1, "The second of previous/next buttons is Next"
+                return Target(self.owner._click)
+        class MobilePlayer(FakePage):
+            def __init__(self):
+                super().__init__(mobile=True, has_next=False)
+                self.url = "https://m.youtube.com/watch?v=a&list=PLTEST&index=1"
+            def locator(self, selector):
+                if selector == "button.player-middle-controls-prev-next-button":
+                    return ButtonPair(self)
+                return super().locator(selector)
+        page = MobilePlayer()
+        result, msg = nav.advance(page, confirmation_seconds=0.1)
+        self.assertTrue(result, msg)
+        self.assertEqual(page.clicks, 1)
+        self.assertIn("mobile player Next", msg)
+
+    def test_mobile_no_next_button_still_returns_diagnostic(self):
+        class NoMobileButtons(FakePage):
+            def __init__(self):
+                super().__init__(mobile=True, has_next=False)
+                self.url = "https://m.youtube.com/watch?v=a&list=PLTEST"
+            def locator(self, selector):
+                if selector == "button.player-middle-controls-prev-next-button":
+                    class Zero:
+                        def count(self):
+                            return 0
+                    return Zero()
+                return super().locator(selector)
+        page = NoMobileButtons()
+        result, msg = nav.advance(page, confirmation_seconds=0)
+        self.assertFalse(result)
+        self.assertIn("mobile player next button pair not found", msg)
+
     def test_mobile_layout_without_fingerprint_detection(self):
         page = FakePage(mobile=True)
         success, _ = nav.advance(page, confirmation_seconds=0.1)
