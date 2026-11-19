@@ -192,6 +192,49 @@ def find_playlist_link(page):
     return None, "playlist scan unavailable"
 
 
+
+def find_mobile_player_next(page):
+    """YouTube mobile has separate Previous and Next buttons with the same class.
+
+    The second button is Next. Unlike the desktop .ytp-next-button, this
+    selector is used by m.youtube.com player controls.
+    """
+    if urlsplit(str(page.url)).hostname != "m.youtube.com":
+        return None, "not YouTube mobile"
+    selector = "button.player-middle-controls-prev-next-button"
+    try:
+        buttons = page.locator(selector)
+        if buttons.count() < 2:
+            return None, "mobile player next button pair not found"
+        next_button = buttons.nth(1)
+        if next_button.is_enabled(timeout=500):
+            return next_button, "mobile player Next (second prev/next button)"
+        return None, "mobile player Next button disabled"
+    except Exception as exc:
+        return None, "mobile player controls lookup failed: " + str(exc)[:120]
+
+
+def click_next_target(page, target, source):
+    """Reveal mobile controls first; attempt normal pointer click then DOM click."""
+    try:
+        if source.startswith("mobile player Next"):
+            try:
+                page.locator("video").first.hover(timeout=800)
+            except Exception:
+                pass
+        target.click(timeout=2500)
+        return True, ""
+    except Exception as exc:
+        if not source.startswith("mobile player Next"):
+            return False, str(exc)[:150]
+        # Mobile overlays sometimes intercept pointer input from Chromium.
+        # A click on the known Next control is safer than guessing screen coords.
+        try:
+            target.evaluate("(element) => element.click()", timeout=1500)
+            return True, ""
+        except Exception as second:
+            return False, (str(exc)[:90] + "; mobile DOM click: " + str(second)[:90])
+
 def video_ended(page):
     """Return None if there is no available video element."""
     try:
@@ -208,6 +251,11 @@ def advance(page, stop_event=None, confirmation_seconds=4):
         return False, "Playlist next: stopped"
     before = media_identity(page)
     target, source = find_next(page)
+    mobile_reason = ""
+    if target is None and urlsplit(str(page.url)).hostname == "m.youtube.com":
+        target, mobile_reason = find_mobile_player_next(page)
+        if target is not None:
+            source = mobile_reason
     scan_diagnostic = ""
     if target is None:
         target, source = find_playlist_link(page)
@@ -221,11 +269,11 @@ def advance(page, stop_event=None, confirmation_seconds=4):
         except Exception:
             pass
     if target is None:
-        return False, ("Playlist next: no usable Next control; " + scan_diagnostic)
-    try:
-        target.click(timeout=2500)
-    except Exception as error:
-        return False, "Playlist next: click failed on " + source + ": " + str(error)[:120]
+        return False, ("Playlist next: no usable Next control; " +
+                       (mobile_reason + "; " if mobile_reason else "") + scan_diagnostic)
+    clicked, click_error = click_next_target(page, target, source)
+    if not clicked:
+        return False, "Playlist next: click failed on " + source + ": " + click_error
     deadline = time.monotonic() + confirmation_seconds
     while time.monotonic() < deadline:
         if stop_event is not None and stop_event.is_set():
