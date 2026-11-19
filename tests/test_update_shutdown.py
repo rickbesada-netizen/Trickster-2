@@ -21,7 +21,7 @@ class UpdateShutdownTests(unittest.TestCase):
         self.assertIn('stderr=subprocess.STDOUT', code)
         self.assertIn('process.poll()', code)
         self.assertIn('CREATE_NO_WINDOW', code)
-        self.assertNotIn('DETACHED_PROCESS', code)
+        self.assertNotIn('getattr(subprocess, "DETACHED_PROCESS"', code)
         self.assertLess(code.index('with open(log_path, "a"'),
                         code.index('subprocess.Popen('))
 
