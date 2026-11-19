@@ -35,7 +35,7 @@ Name: "{autodesktop}\Trickster"; Filename: "{app}\Trickster.exe"; Tasks: desktop
 [Run]
 Filename: "{app}\Trickster.exe"; Description: "Open Trickster now"; Flags: nowait postinstall skipifsilent
 ; After a silent (automatic) update, reopen Trickster by itself.
-Filename: "{app}\Trickster.exe"; Flags: nowait; Check: WizardSilent
+; The detached update helper restarts Trickster after setup finishes.
 
 [Code]
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

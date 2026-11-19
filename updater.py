@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tempfile
 import threading
 import urllib.request
@@ -124,7 +125,7 @@ try {
   Write-UpdateLog "Trickster exited; starting silent setup"
   $process = Start-Process -FilePath $SetupPath -ArgumentList @(
     '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
-    '/NOCLOSEAPPLICATIONS'
+    '/NOCLOSEAPPLICATIONS', ('/LOG=' + (Join-Path ([IO.Path]::GetTempPath()) 'trickster_setup.log'))
   ) -PassThru -Wait
   Write-UpdateLog "Setup exited with code $($process.ExitCode)"
   if ($process.ExitCode -ne 0) {
@@ -168,30 +169,42 @@ def install(url, installed_exe, log=print):
         with os.fdopen(helper_fd, "w", encoding="utf-8-sig") as output:
             output.write(update_helper_script())
         log_path = str(Path(tempfile.gettempdir()) / "trickster_update.log")
-        # Detached helper must not inherit Trickster's file handles. It waits
-        # for THIS PID to exit before touching Trickster.exe.
-        subprocess.Popen(
-            [
-                "powershell.exe", "-NoProfile", "-NonInteractive",
-                "-ExecutionPolicy", "Bypass", "-File", helper,
-                "-ParentPid", str(os.getpid()),
-                "-SetupPath", path,
-                "-InstalledExe", str(installed_path),
-                "-LogPath", log_path
-            ],
-            creationflags=(
-                getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                | getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-            ),
-            close_fds=True,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        log("[update] installer downloaded; helper will wait for Trickster to exit")
+        # Persist a diagnostic BEFORE starting PowerShell: previous versions
+        # wrote their first log line only from the helper, so a startup error
+        # left no file at all. Capture stderr (including script parameter errors)
+        # in the same file for support.
+        with open(log_path, "a", encoding="utf-8") as diagnostic:
+            diagnostic.write(f"[update] {time.strftime('%Y-%m-%d %H:%M:%S')} "
+                             f"launching helper for Trickster PID {os.getpid()}\\n")
+            diagnostic.write(f"[update] setup={path} helper={helper}\\n")
+        # CREATE_NO_WINDOW is sufficient; do not combine conflicting Windows
+        # DETACHED_PROCESS / CREATE_NEW_PROCESS_GROUP creation flags.
+        with open(log_path, "ab", buffering=0) as diagnostic:
+            process = subprocess.Popen(
+                [
+                    "powershell.exe", "-NoProfile", "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass", "-File", helper,
+                    "-ParentPid", str(os.getpid()),
+                    "-SetupPath", path,
+                    "-InstalledExe", str(installed_path),
+                    "-LogPath", log_path,
+                ],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=diagnostic,
+                stderr=subprocess.STDOUT,
+            )
+        # Catch helpers that exit immediately before shutting down Trickster,
+        # rather than silently closing the app and leaving the user on old build.
+        time.sleep(0.35)
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"Update helper exited immediately (code {process.returncode}). "
+                f"Read {log_path}"
+            )
+        log("[update] helper started; waiting for Trickster to exit")
         _mark_attempt()
-        # Allow the JS API response to return before shutting down the host.
         threading.Timer(1.0, os._exit, [0]).start()
     except Exception:
         try:
