@@ -235,6 +235,81 @@ def click_next_target(page, target, source):
         except Exception as second:
             return False, (str(exc)[:90] + "; mobile DOM click: " + str(second)[:90])
 
+
+# Only react to explicit ad signals. A slow video or loading spinner is not
+# enough evidence to skip a legitimate playlist item.
+AD_STATUS_JS = r"""
+() => {
+  const visible = element => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const box = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden' &&
+           box.width > 0 && box.height > 0;
+  };
+  const player = document.querySelector('#movie_player, .html5-video-player, ytm-player') || document;
+  const isDesktopAd = !!player.closest('.ad-showing, .ad-interrupting') ||
+                      player.classList.contains('ad-showing') ||
+                      player.classList.contains('ad-interrupting');
+  const mobileIndicators = [
+    'ytm-ad-player-overlay', 'ytm-promoted-video-renderer .ad-badge',
+    '.player-ad-overlay', '.ytp-ad-player-overlay', '.ytp-ad-text',
+    '.ytp-ad-preview-container', '.ytp-ad-skip-button-container'
+  ];
+  const present = mobileIndicators.some(selector =>
+    [...document.querySelectorAll(selector)].some(visible));
+  return {is_ad: isDesktopAd || present,
+          reason: isDesktopAd ? 'player ad-showing class' : (present ? 'visible ad overlay' : 'no ad detected')};
+}
+"""
+
+
+def ad_status(page):
+    """Return a positive signal only for known visible ad-player indicators."""
+    try:
+        result = page.evaluate(AD_STATUS_JS)
+        if isinstance(result, dict):
+            return bool(result.get("is_ad")), str(result.get("reason") or "")
+    except Exception as exc:
+        return False, "ad detection unavailable: " + str(exc)[:100]
+    return False, "ad detection unavailable"
+
+
+def skip_ad_or_next(page, stop_event=None):
+    """Attempt Skip Ad first; if absent attempt the existing verified Next.
+
+    No action is taken when ad detection is negative.
+    """
+    if stop_event is not None and stop_event.is_set():
+        return False, "Ad check: stopped"
+    detected, reason = ad_status(page)
+    if not detected:
+        return False, "Ad check: no ad detected"
+    skip_selectors = (
+        "button.ytp-ad-skip-button",
+        "button.ytp-skip-ad-button",
+        ".ytp-ad-skip-button-modern",
+        "button[aria-label='Skip Ads']",
+        "button[aria-label='Skip Ad']",
+        "button[aria-label='Skip ad']",
+        "ytm-skip-ad-renderer button",
+        "button[class*='skip-ad']",
+    )
+    for selector in skip_selectors:
+        try:
+            candidate = page.locator(selector).first
+            if not candidate.is_visible(timeout=250) or not candidate.is_enabled(timeout=250):
+                continue
+            candidate.click(timeout=1500)
+            return True, "Ad check: clicked Skip Ad (" + selector + ")"
+        except Exception:
+            continue
+    ok, message = advance(page, stop_event=stop_event, confirmation_seconds=3)
+    if ok:
+        return True, "Ad check: ad detected; " + message
+    return False, "Ad check: ad detected (" + reason + ") but could not advance: " + message
+
+
 def video_ended(page):
     """Return None if there is no available video element."""
     try:
