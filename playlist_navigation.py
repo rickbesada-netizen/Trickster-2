@@ -310,6 +310,61 @@ def skip_ad_or_next(page, stop_event=None):
     return False, "Ad check: ad detected (" + reason + ") but could not advance: " + message
 
 
+
+def content_playback_status(page):
+    """Measure actual main-video progression, not wall-clock time or ad time."""
+    try:
+        return page.evaluate("""() => {
+          const video = document.querySelector('video');
+          if (!video) return {ready: false};
+          const player = document.querySelector('#movie_player, .html5-video-player, ytm-player');
+          const explicitAd = !!player && (player.classList.contains('ad-showing') ||
+                             player.classList.contains('ad-interrupting'));
+          const overlay = !!document.querySelector('ytm-ad-player-overlay, .ytp-ad-player-overlay');
+          const u = new URL(location.href);
+          return {
+            ready: video.readyState > 0,
+            ended: Boolean(video.ended),
+            ad: explicitAd || overlay,
+            identity: u.searchParams.get('v') || location.pathname,
+            current_time: Number(video.currentTime) || 0
+          };
+        }""")
+    except Exception:
+        return None
+
+
+def skip_ad_if_available(page, stop_event=None):
+    """Click Skip Ad only when an actual, enabled Skip Ad control exists.
+
+    Never advance the playlist solely because an ad is playing.
+    """
+    if stop_event is not None and stop_event.is_set():
+        return False, "Ad check: stopped"
+    selectors = (
+        "button.ytp-ad-skip-button",
+        "button.ytp-skip-ad-button",
+        ".ytp-ad-skip-button-modern",
+        "button[aria-label='Skip Ads']",
+        "button[aria-label='Skip Ad']",
+        "button[aria-label='Skip ad']",
+        "ytm-skip-ad-renderer button",
+        "button[class*='skip-ad']",
+    )
+    detected, _ = ad_status(page)
+    if not detected:
+        return False, "Ad check: no ad detected"
+    for selector in selectors:
+        try:
+            target = page.locator(selector).first
+            if target.is_visible(timeout=250) and target.is_enabled(timeout=250):
+                target.click(timeout=1500)
+                return True, "Ad check: clicked Skip Ad"
+        except Exception:
+            continue
+    return False, "Ad check: ad found, no enabled Skip Ad button yet"
+
+
 def video_ended(page):
     """Return None if there is no available video element."""
     try:
