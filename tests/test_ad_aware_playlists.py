@@ -116,9 +116,9 @@ class AdAwareTests(unittest.TestCase):
             return True, "Playlist next: confirmed item changed"
         action = {"at": 0, "type": "next", "mode": "interval",
                   "interval": 10, "check_ads": True, "ad_check_seconds": 15}
-        with patch.object(plan_runner.time, "monotonic", side_effect=lambda: clock[0]), \\
-             patch.object(nav, "skip_ad_if_available", side_effect=ad_check), \\
-             patch.object(nav, "content_playback_status", side_effect=playback), \\
+        with patch.object(plan_runner.time, "monotonic", side_effect=lambda: clock[0]), \
+             patch.object(nav, "skip_ad_if_available", side_effect=ad_check), \
+             patch.object(nav, "content_playback_status", side_effect=playback), \
              patch.object(nav, "advance", side_effect=advance):
             plan_runner.page_script(34, False, [action])(Page(), None)
         self.assertGreaterEqual(len(ad_checks), 2)
