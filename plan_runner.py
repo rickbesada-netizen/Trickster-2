@@ -144,10 +144,17 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
                 interval = float(a.get("interval") or 0)
             except (TypeError, ValueError):
                 return [], f"action {n}: repeat interval must be a number"
-            if mode in ("interval", "ad_aware") and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
+            if mode == "interval" and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
                 return [], f"action {n}: repeat interval must be {MIN_REPEAT_INTERVAL}-{MAX_REPEAT_INTERVAL} seconds"
-            out.append({"at": at, "type": "next", "mode": mode,
-                        "interval": interval if mode in ("interval", "ad_aware") else 0})
+            # Legacy Build 38 ad_aware actions meant "advance on video end";
+            # never interpret their 15s ad-check interval as a skip timer.
+            check_ads = bool(a.get("check_ads", False)) or mode == "ad_aware"
+            ad_check_seconds = 15.0
+            out.append({"at": at, "type": "next",
+                        "mode": "ended" if mode == "ad_aware" else mode,
+                        "interval": interval if mode == "interval" else 0,
+                        "check_ads": check_ads,
+                        "ad_check_seconds": ad_check_seconds})
         elif kind == "click":
             selector = str(a.get("value") or "").strip()
             if (not selector or len(selector) > MAX_CLICK_SELECTOR_LENGTH
@@ -283,60 +290,118 @@ def _do_action(page, action: dict):
 
 
 def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
-    """Runs one page's whole time on the browser thread: optional steady
-    scroll toward the bottom (re-measured each tick so growing pages work),
-    plus the scheduled key presses / typing, each fired at its exact second."""
-    todo = sorted(actions or [], key=lambda a: a["at"])
+    """Schedule video navigation independently from 15-second ad checks.
+
+    With ad checks enabled, interval-based Next uses *actual content playback*
+    seconds instead of wall-clock seconds. Pauses and recognized ads don't
+    consume video time. The ad checker only clicks Skip Ad when offered.
+    """
+    actions = sorted(actions or [], key=lambda a: a["at"])
 
     def fn(page, stop_event):
-        start = time.time()
+        start = time.monotonic()
         end = start + seconds
         tick = 0.2
-        i = 0
-        last_ended_probe = 0
-        ended_armed = True
+        other = sorted((a for a in actions if a["type"] != "next"), key=lambda a: a["at"])
+        other_index = 0
+        next_states = [
+            {"action": a, "started": False, "last_check": None,
+             "last_probe": None, "elapsed_content": 0.0,
+             "last_identity": None, "video_id": None, "ended_armed": True,
+             "last_next": None}
+            for a in actions if a["type"] == "next"
+        ]
         while True:
-            now = time.time()
+            now = time.monotonic()
             if now >= end or (stop_event is not None and stop_event.is_set()):
                 return
-            while i < len(todo) and todo[i]["at"] <= now - start:
-                action = todo[i]
-                if action["type"] == "next":
-                    if action["mode"] == "interval":
-                        ok, message = playlist_navigation.advance(page, stop_event)
-                        if report:
-                            report(message)
-                    elif action["mode"] == "ad_aware":
-                        ok, message = playlist_navigation.skip_ad_or_next(page, stop_event)
-                        if report:
-                            report(message)
-                    # Video-end actions are polled below.
-                else:
-                    _do_action(page, action)
-                interval = action.get("interval", 0) if action["type"] in ("click", "next") and action.get("mode", "interval") in ("interval", "ad_aware") else 0
+            elapsed = now - start
+            while other_index < len(other) and other[other_index]["at"] <= elapsed:
+                a = other[other_index]
+                _do_action(page, a)
+                interval = a.get("interval", 0) if a["type"] == "click" else 0
                 if interval:
-                    # Reschedule in this same browser session until the step ends.
-                    # Skip missed ticks rather than issuing a burst of clicks.
-                    next_at = action["at"] + interval
-                    elapsed = time.time() - start
-                    if next_at <= elapsed:
-                        next_at += (int((elapsed - next_at) // interval) + 1) * interval
-                    if next_at < seconds:
-                        todo.append({**action, "at": next_at})
-                        todo[i + 1:] = sorted(todo[i + 1:], key=lambda a: a["at"])
-                i += 1
-            if now - last_ended_probe >= 0.8:
-                last_ended_probe = now
-                for action in actions or []:
-                    if action.get("type") != "next" or action.get("mode") not in ("ended", "ad_aware") or now - start < action["at"]:
-                        continue
-                    status = playlist_navigation.video_ended(page)
-                    if status is None or not status.get("ready"):
-                        continue
+                    due = a["at"] + interval
+                    if due <= elapsed:
+                        due += (int((elapsed - due) // interval) + 1) * interval
+                    if due < seconds:
+                        other.append({**a, "at": due})
+                        other[other_index + 1:] = sorted(
+                            other[other_index + 1:], key=lambda x: x["at"])
+                other_index += 1
+
+            for state in next_states:
+                a = state["action"]
+                if elapsed < a["at"]:
+                    continue
+                if not state["started"]:
+                    state["started"] = True
+                    state["last_check"] = now
+                    state["last_probe"] = now
+                    if not a.get("check_ads") and a["mode"] == "interval":
+                        # Preserve legacy fixed wall-clock timing when ad-aware
+                        # timing is disabled.
+                        state["last_next"] = now - a["interval"]
+
+                if a.get("check_ads") and now - state["last_check"] >= a["ad_check_seconds"]:
+                    state["last_check"] = now
+                    ok, message = playlist_navigation.skip_ad_if_available(page, stop_event)
+                    if report and ("clicked" in message or "failed" in message):
+                        report(message)
+
+                # Poll the actual video independently of ad checks.
+                if now - state["last_probe"] < 0.8:
+                    continue
+                state["last_probe"] = now
+                if not a.get("check_ads"):
+                    if a["mode"] == "interval" and now - state["last_next"] >= a["interval"]:
+                        ok, message = playlist_navigation.advance(page, stop_event)
+                        state["last_next"] = now
+                        if report:
+                            report(message)
+                    elif a["mode"] == "ended":
+                        status = playlist_navigation.video_ended(page)
+                        if status and status.get("ready"):
+                            if not status.get("ended"):
+                                state["ended_armed"] = True
+                            elif state["ended_armed"]:
+                                state["ended_armed"] = False
+                                ok, message = playlist_navigation.advance(page, stop_event)
+                                if report:
+                                    report(message)
+                    continue
+
+                status = playlist_navigation.content_playback_status(page)
+                if not status or not status.get("ready") or status.get("ad"):
+                    # Never increment content playback while an ad is visible.
+                    state["last_identity"] = None
+                    continue
+                identity = status.get("identity")
+                current = float(status.get("current_time") or 0)
+                previous = state["last_identity"]
+                if state["video_id"] != identity:
+                    # Reset only when the actual playlist video changes, not
+                    # when an ad temporarily hides its playback telemetry.
+                    state["elapsed_content"] = 0
+                    state["ended_armed"] = True
+                    state["video_id"] = identity
+                if previous and previous[0] == identity:
+                    delta = current - previous[1]
+                    if 0 < delta <= 5:
+                        state["elapsed_content"] += delta
+                state["last_identity"] = (identity, current)
+                if a["mode"] == "interval" and state["elapsed_content"] >= a["interval"]:
+                    ok, message = playlist_navigation.advance(page, stop_event)
+                    if ok:
+                        state["elapsed_content"] = 0
+                        state["last_identity"] = None
+                    if report:
+                        report(message)
+                elif a["mode"] == "ended":
                     if not status.get("ended"):
-                        ended_armed = True
-                    elif ended_armed:
-                        ended_armed = False
+                        state["ended_armed"] = True
+                    elif state["ended_armed"]:
+                        state["ended_armed"] = False
                         ok, message = playlist_navigation.advance(page, stop_event)
                         if report:
                             report(message)
@@ -344,15 +409,14 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
                 try:
                     remaining = page.evaluate(
                         "Math.max(0, document.documentElement.scrollHeight - window.innerHeight - window.scrollY)")
-                    left = end - time.time()
+                    left = end - time.monotonic()
                     if remaining > 0 and left > 0:
                         step = remaining / max(left, tick) * tick
                         page.evaluate("d => window.scrollBy(0, d)", step)
                 except Exception:
-                    pass  # mid-navigation; try again next tick
+                    pass
             page.wait_for_timeout(int(tick * 1000))
     return fn
-
 
 class PlanRunner:
     def __init__(self, runner, files_fn: Callable[[], List[Path]]):
