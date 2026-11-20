@@ -50,7 +50,8 @@ class AdAwareTests(unittest.TestCase):
             {"type": "next", "at": 10, "mode": "ad_aware", "interval": 15}
         ], seconds=120)
         self.assertIsNone(error)
-        self.assertEqual(actions[0]["interval"], 15)
+        self.assertEqual(actions[0]["interval"], 0)
+        self.assertEqual(actions[0]["ad_check_seconds"], 15)
         self.assertEqual(actions[0]["mode"], "ended")
         self.assertTrue(actions[0]["check_ads"])
         converted, error = plan_runner.clean_actions([
