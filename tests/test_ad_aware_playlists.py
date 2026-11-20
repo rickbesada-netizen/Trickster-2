@@ -98,6 +98,34 @@ class AdAwareTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(self_page.clicks, 1)
 
+    def test_ad_poll_does_not_override_user_video_interval(self):
+        clock = [0.0]
+        ad_checks, advances = [], []
+        class Page:
+            def wait_for_timeout(self, milliseconds):
+                clock[0] += milliseconds / 1000.0
+        def playback(_page):
+            t = clock[0]
+            return {"ready": True, "ended": False, "ad": t < 12,
+                    "identity": "video-A", "current_time": max(0, t - 12)}
+        def ad_check(*args):
+            ad_checks.append(clock[0])
+            return False, "Ad check: no enabled Skip Ad button"
+        def advance(*args):
+            advances.append(clock[0])
+            return True, "Playlist next: confirmed item changed"
+        action = {"at": 0, "type": "next", "mode": "interval",
+                  "interval": 10, "check_ads": True, "ad_check_seconds": 15}
+        with patch.object(plan_runner.time, "monotonic", side_effect=lambda: clock[0]), \\
+             patch.object(nav, "skip_ad_if_available", side_effect=ad_check), \\
+             patch.object(nav, "content_playback_status", side_effect=playback), \\
+             patch.object(nav, "advance", side_effect=advance):
+            plan_runner.page_script(34, False, [action])(Page(), None)
+        self.assertGreaterEqual(len(ad_checks), 2)
+        self.assertTrue(all(b - a >= 14.7 for a, b in zip(ad_checks, ad_checks[1:])))
+        self.assertTrue(21.0 <= advances[0] <= 24.0, advances)
+        self.assertTrue(all(t > 15 for t in advances))
+
     def test_negative_signal_on_detector_exception(self):
         class Page:
             def evaluate(self, js): raise RuntimeError("page changed")
