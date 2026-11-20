@@ -51,11 +51,51 @@ class AdAwareTests(unittest.TestCase):
         ], seconds=120)
         self.assertIsNone(error)
         self.assertEqual(actions[0]["interval"], 15)
-        self.assertEqual(actions[0]["mode"], "ad_aware")
-        _, error = plan_runner.clean_actions([
+        self.assertEqual(actions[0]["mode"], "ended")
+        self.assertTrue(actions[0]["check_ads"])
+        converted, error = plan_runner.clean_actions([
             {"type": "next", "at": 10, "mode": "ad_aware", "interval": 0}
         ], seconds=120)
-        self.assertIn("repeat interval", error)
+        self.assertIsNone(error)
+        self.assertEqual(converted[0]["mode"], "ended")
+
+    def test_separate_user_interval_and_ad_checks(self):
+        actions, error = plan_runner.clean_actions([
+            {"type": "next", "at": 10, "mode": "interval",
+             "interval": 120, "check_ads": True}
+        ], seconds=500)
+        self.assertIsNone(error)
+        self.assertEqual(actions[0]["interval"], 120)
+        self.assertEqual(actions[0]["ad_check_seconds"], 15)
+        self.assertTrue(actions[0]["check_ads"])
+
+    def test_ad_check_does_not_invoke_next_without_skip(self):
+        class Button:
+            @property
+            def first(self): return self
+            def is_visible(self, timeout=None): return False
+        class Page:
+            def locator(self, selector): return Button()
+        with patch.object(nav, "advance", side_effect=AssertionError("never call Next")):
+            ok, message = nav.skip_ad_if_available(Page())
+        self.assertFalse(ok)
+        self.assertIn("no enabled Skip Ad", message)
+
+    def test_visible_skip_button_succeeds_without_ad_overlay(self):
+        class Button:
+            @property
+            def first(self): return self
+            def is_visible(self, timeout=None): return True
+            def is_enabled(self, timeout=None): return True
+            def click(self, timeout=None): self_page.clicks += 1
+        class Page:
+            def __init__(self): self.clicks=0
+            def locator(self, selector): return Button()
+        self_page = Page()
+        with patch.object(nav, "advance", side_effect=AssertionError("not Next")):
+            ok, message = nav.skip_ad_if_available(self_page)
+        self.assertTrue(ok)
+        self.assertEqual(self_page.clicks, 1)
 
     def test_negative_signal_on_detector_exception(self):
         class Page:
