@@ -351,9 +351,8 @@ def skip_ad_if_available(page, stop_event=None):
         "ytm-skip-ad-renderer button",
         "button[class*='skip-ad']",
     )
-    detected, _ = ad_status(page)
-    if not detected:
-        return False, "Ad check: no ad detected"
+    # A visible enabled Skip Ad button is sufficient evidence in itself:
+    # mobile YouTube sometimes displays this button without .ad-showing.
     for selector in selectors:
         try:
             target = page.locator(selector).first
@@ -362,7 +361,7 @@ def skip_ad_if_available(page, stop_event=None):
                 return True, "Ad check: clicked Skip Ad"
         except Exception:
             continue
-    return False, "Ad check: ad found, no enabled Skip Ad button yet"
+    return False, "Ad check: no enabled Skip Ad button"
 
 
 def video_ended(page):
