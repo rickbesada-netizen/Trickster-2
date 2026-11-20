@@ -307,7 +307,7 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
         next_states = [
             {"action": a, "started": False, "last_check": None,
              "last_probe": None, "elapsed_content": 0.0,
-             "last_identity": None, "ended_armed": True,
+             "last_identity": None, "video_id": None, "ended_armed": True,
              "last_next": None}
             for a in actions if a["type"] == "next"
         ]
@@ -379,14 +379,16 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
                 identity = status.get("identity")
                 current = float(status.get("current_time") or 0)
                 previous = state["last_identity"]
+                if state["video_id"] != identity:
+                    # Reset only when the actual playlist video changes, not
+                    # when an ad temporarily hides its playback telemetry.
+                    state["elapsed_content"] = 0
+                    state["ended_armed"] = True
+                    state["video_id"] = identity
                 if previous and previous[0] == identity:
                     delta = current - previous[1]
                     if 0 < delta <= 5:
                         state["elapsed_content"] += delta
-                else:
-                    # New video or player loaded: reset per-video timing.
-                    state["elapsed_content"] = 0
-                    state["ended_armed"] = True
                 state["last_identity"] = (identity, current)
                 if a["mode"] == "interval" and state["elapsed_content"] >= a["interval"]:
                     ok, message = playlist_navigation.advance(page, stop_event)
