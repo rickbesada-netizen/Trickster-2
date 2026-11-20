@@ -48,7 +48,7 @@ class ClickActionsTest(unittest.TestCase):
                 clock[0] += millis / 1000
         fn = plan_runner.page_script(
             7, False, [{"at": 1, "type": "click", "value": "button.next", "interval": 2}])
-        with patch.object(plan_runner.time, "time", side_effect=lambda: clock[0]):
+        with patch.object(plan_runner.time, "monotonic", side_effect=lambda: clock[0]):
             fn(FakePage(), None)
         self.assertEqual(len(clicks), 3)
         self.assertTrue(100.8 <= clicks[0] <= 101.4)
