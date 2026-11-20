@@ -295,8 +295,6 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
         i = 0
         last_ended_probe = 0
         ended_armed = True
-        # Track ad checks independently for each action in this browser session.
-        last_ad_checks = {}
         while True:
             now = time.time()
             if now >= end or (stop_event is not None and stop_event.is_set()):
@@ -310,7 +308,6 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
                             report(message)
                     elif action["mode"] == "ad_aware":
                         ok, message = playlist_navigation.skip_ad_or_next(page, stop_event)
-                        last_ad_checks[id(action)] = time.time()
                         if report:
                             report(message)
                     # Video-end actions are polled below.
