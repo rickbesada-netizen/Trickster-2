@@ -138,16 +138,16 @@ def clean_actions(raw, seconds) -> Tuple[List[dict], Optional[str]]:
             out.append({"at": at, "type": "key", "value": key, "repeat": repeat})
         elif kind == "next":
             mode = str(a.get("mode") or "interval")
-            if mode not in ("interval", "ended"):
-                return [], f"action {n}: Next mode must be an interval or video end"
+            if mode not in ("interval", "ended", "ad_aware"):
+                return [], f"action {n}: Next mode must be interval, video end, or ad-aware"
             try:
                 interval = float(a.get("interval") or 0)
             except (TypeError, ValueError):
                 return [], f"action {n}: repeat interval must be a number"
-            if mode == "interval" and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
+            if mode in ("interval", "ad_aware") and not MIN_REPEAT_INTERVAL <= interval <= MAX_REPEAT_INTERVAL:
                 return [], f"action {n}: repeat interval must be {MIN_REPEAT_INTERVAL}-{MAX_REPEAT_INTERVAL} seconds"
             out.append({"at": at, "type": "next", "mode": mode,
-                        "interval": interval if mode == "interval" else 0})
+                        "interval": interval if mode in ("interval", "ad_aware") else 0})
         elif kind == "click":
             selector = str(a.get("value") or "").strip()
             if (not selector or len(selector) > MAX_CLICK_SELECTOR_LENGTH
@@ -295,6 +295,8 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
         i = 0
         last_ended_probe = 0
         ended_armed = True
+        # Track ad checks independently for each action in this browser session.
+        last_ad_checks = {}
         while True:
             now = time.time()
             if now >= end or (stop_event is not None and stop_event.is_set()):
@@ -306,13 +308,15 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
                         ok, message = playlist_navigation.advance(page, stop_event)
                         if report:
                             report(message)
-                    else:
-                        # End-of-video actions are polled below, not fired at the
-                        # trigger second.
-                        pass
+                    elif action["mode"] == "ad_aware":
+                        ok, message = playlist_navigation.skip_ad_or_next(page, stop_event)
+                        last_ad_checks[id(action)] = time.time()
+                        if report:
+                            report(message)
+                    # Video-end actions are polled below.
                 else:
                     _do_action(page, action)
-                interval = action.get("interval", 0) if action["type"] in ("click", "next") and action.get("mode", "interval") == "interval" else 0
+                interval = action.get("interval", 0) if action["type"] in ("click", "next") and action.get("mode", "interval") in ("interval", "ad_aware") else 0
                 if interval:
                     # Reschedule in this same browser session until the step ends.
                     # Skip missed ticks rather than issuing a burst of clicks.
@@ -327,7 +331,7 @@ def page_script(seconds: float, scroll: bool, actions: List[dict], report=None):
             if now - last_ended_probe >= 0.8:
                 last_ended_probe = now
                 for action in actions or []:
-                    if action.get("type") != "next" or action.get("mode") != "ended" or now - start < action["at"]:
+                    if action.get("type") != "next" or action.get("mode") not in ("ended", "ad_aware") or now - start < action["at"]:
                         continue
                     status = playlist_navigation.video_ended(page)
                     if status is None or not status.get("ready"):
