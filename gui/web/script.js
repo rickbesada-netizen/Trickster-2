@@ -349,7 +349,7 @@ function addActionLine(box, vals = {}) {
     <span data-a="times" title="times">times</span>
     <input type="text" data-a="text" maxlength="300" placeholder="text to type" class="act-text" />
     <input type="text" data-a="selector" maxlength="250" placeholder="CSS selector, e.g. button.next" class="act-text" title="Button CSS selector on your website" hidden />
-    <select data-a="next-mode" hidden><option value="interval">Advance every N seconds</option><option value="ended">Advance when video ends</option></select>
+    <select data-a="next-mode" hidden><option value="interval">Advance every N seconds</option><option value="ended">Advance when video ends</option><option value="ad_aware">Ad-aware: check ads + advance at video end</option></select>
     <span data-a="repeat-label" hidden>Repeat every</span>
     <input type="number" data-a="interval" min="0" max="3600" step="1" value="0" class="act-sec" title="Seconds between automatic clicks (0 = once)" hidden />
     <span data-a="interval-unit" hidden>seconds (0 = once)</span>
@@ -364,7 +364,7 @@ function addActionLine(box, vals = {}) {
     line.querySelector('[data-a=text]').hidden = type !== 'text';
     line.querySelector('[data-a=selector]').hidden = !isClick;
     line.querySelector('[data-a=next-mode]').hidden = !isNext;
-    const needsInterval = isClick || (isNext && line.querySelector('[data-a=next-mode]').value === 'interval');
+    const needsInterval = isClick || (isNext && ['interval', 'ad_aware'].includes(line.querySelector('[data-a=next-mode]').value));
     line.querySelector('[data-a=interval]').hidden = !needsInterval;
     line.querySelector('[data-a=repeat-label]').hidden = !needsInterval;
     line.querySelector('[data-a=interval-unit]').hidden = !needsInterval;
@@ -389,9 +389,14 @@ function addActionLine(box, vals = {}) {
   }
   if (vals.type === 'next') {
     line.querySelector('[data-a=next-mode]').value = vals.mode || 'interval';
-    line.querySelector('[data-a=interval]').value = vals.interval ?? 180;
+    line.querySelector('[data-a=interval]').value = vals.interval ?? (vals.mode === 'ad_aware' ? 15 : 180);
   }
-  line.querySelector('[data-a=next-mode]').addEventListener('change', sync);
+  line.querySelector('[data-a=next-mode]').addEventListener('change', () => {
+    if (line.querySelector('[data-a=next-mode]').value === 'ad_aware') {
+      line.querySelector('[data-a=interval]').value = 15;
+    }
+    sync();
+  });
   line.querySelector('[data-a=type]').addEventListener('change', () => {
     if (line.querySelector('[data-a=type]').value === 'next'
         && Number(line.querySelector('[data-a=interval]').value) === 0) {
@@ -449,7 +454,7 @@ function addPlanRow(vals = {}) {
   sub.className = 'act-row';
   sub.hidden = true;
   sub.innerHTML = `<td colspan="6"><div class="act-box">
-      <div class="act-help">Happens automatically while this page is open. For automatic mobile/desktop navigation, choose Next playlist item. It finds a visible Next control and confirms navigation, with repeat intervals or video-end detection.</div>
+      <div class="act-help">Happens automatically while this page is open. For automatic mobile/desktop navigation, choose Next playlist item. It finds the Next control; choose ad-aware mode to check for ads every 15 seconds, skip recognized ads, and advance when video ends.</div>
       <div class="act-list"></div>
       <button class="btn btn-ghost btn-small act-add">+ Add action</button></div></td>`;
   const box = sub.querySelector('.act-box');
