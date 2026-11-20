@@ -19,6 +19,8 @@ jobs:
           node --check gui/web/script.js
       - name: Verify mobile playlist DOM fallback
         run: node tests/test_mobile_playlist_dom.js
+      - name: Verify ad-aware playlist checks
+        run: python -m unittest discover -s tests -p "test_ad_aware_playlists.py" -v
       - name: Verify playlist Next actions
         run: python -m unittest discover -s tests -p "test_playlist_navigation.py" -v
       - name: Verify existing timed click actions
