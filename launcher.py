@@ -52,6 +52,11 @@ else:
 PROJECT_ROOT = WRITABLE_DIR
 INJECTION_TEMPLATE_PATH = RESOURCE_DIR / "fingerprint_injection.js"
 EXTENSIONS_DIR = WRITABLE_DIR / "extensions"
+# This computer's own addresses skip the profile's proxy (as in a normal
+# Chrome), so account sign-ins can hand back to Clip Engine on 127.0.0.1.
+# Chromium can't limit this to one port when a proxy is set, so it covers all
+# local addresses; every website still goes through the proxy.
+LOCAL_BYPASS = "127.0.0.1,localhost,[::1]"
 USER_DATA_ROOT = WRITABLE_DIR / "profiles" / "user_data"
 
 
@@ -809,6 +814,12 @@ def build_context(p, profile: dict, headless: bool = False, debug_port: int | No
             launch_kwargs["proxy"] = {"server": f"http://127.0.0.1:{local_port}"}
         else:
             launch_kwargs["proxy"] = {"server": proxy["server"]}
+        # The browser engine forces even this computer's own addresses
+        # (127.0.0.1) through the profile's proxy, and the proxy refuses them
+        # ("403 Forbidden"). That broke signing a client's account in to Clip
+        # Engine from inside its profile: Google/Instagram send the browser
+        # back to http://127.0.0.1:5050/oauth/... at the end.
+        launch_kwargs["proxy"]["bypass"] = LOCAL_BYPASS
 
     # Snapshot existing Chromium windows right before actually launching —
     # apply_taskbar_identity() below uses this to find the new window by
